@@ -1,82 +1,77 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
-import { VibeStatus } from '@prisma/client'
+import { VibeStatus } from '@/lib/utils'
 import { v4 as uuid } from 'uuid'
 
 // This route can be hit manually or via a cron job
-// In production, set up a cron job to hit this endpoint every minute
-export async function POST(req: NextRequest) {
+// It checks for ended auctions and updates their status
+
+export async function GET(req: NextRequest) {
   try {
-    // Optional: Add a secret key check for production
+    // Optional: Verify cron secret for security
     const authHeader = req.headers.get('authorization')
     const cronSecret = process.env.CRON_SECRET
-    
+
     if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      // Allow without auth if CRON_SECRET is not set (for development)
+      if (cronSecret) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
     }
 
     const now = new Date()
 
-    // Find and update expired active auctions
-    const expiredVibes = await prisma.vibe.findMany({
+    // Find all active vibes that have ended
+    const endedVibes = await prisma.vibe.findMany({
       where: {
         status: VibeStatus.ACTIVE,
-        endAt: { lt: now },
+        endAt: { lte: now },
       },
+      select: { id: true, title: true },
     })
 
-    if (expiredVibes.length > 0) {
-      await prisma.vibe.updateMany({
-        where: {
-          id: { in: expiredVibes.map(v => v.id) },
-        },
-        data: {
-          status: VibeStatus.ENDED,
-        },
-      })
-
-      // Log the updates
-      await prisma.auditLog.createMany({
-        data: expiredVibes.map(vibe => ({
-          id: uuid(),
-          action: 'VIBE_ENDED_AUTO',
-          meta: JSON.stringify({ vibeId: vibe.id, title: vibe.title }),
-        })),
+    if (endedVibes.length === 0) {
+      return NextResponse.json({ 
+        message: 'No auctions to update',
+        checked: 0,
+        updated: 0,
       })
     }
 
-    // Find vibes where payment deadline passed
-    // Note: We don't auto-change winners, just flag them
-    const overduePayments = await prisma.vibe.findMany({
+    // Update all ended vibes
+    const updateResult = await prisma.vibe.updateMany({
       where: {
-        status: VibeStatus.ENDED,
-        winnerUserId: { not: null },
-        paymentDueAt: { lt: now },
+        status: VibeStatus.ACTIVE,
+        endAt: { lte: now },
       },
-      select: {
-        id: true,
-        title: true,
-        winnerUserId: true,
-        paymentDueAt: true,
+      data: {
+        status: VibeStatus.ENDED,
+      },
+    })
+
+    // Log the action
+    await prisma.auditLog.create({
+      data: {
+        id: uuid(),
+        action: 'CRON_TICK',
+        meta: JSON.stringify({
+          vibesEnded: endedVibes.map((v) => v.id),
+          count: updateResult.count,
+        }),
       },
     })
 
     return NextResponse.json({
-      message: 'Cron tick completed',
-      vibesEnded: expiredVibes.length,
-      overduePayments: overduePayments.length,
-      overdueVibeIds: overduePayments.map(v => v.id),
+      message: `Updated ${updateResult.count} auctions`,
+      checked: endedVibes.length,
+      updated: updateResult.count,
+      vibes: endedVibes,
     })
   } catch (error) {
     console.error('Cron tick error:', error)
     return NextResponse.json(
-      { error: 'Cron tick failed' },
+      { error: 'Failed to process auctions' },
       { status: 500 }
     )
   }
-}
-
-// Allow GET for easy manual testing in dev
-export async function GET(req: NextRequest) {
-  return POST(req)
 }
