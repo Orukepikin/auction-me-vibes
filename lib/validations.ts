@@ -42,3 +42,6 @@ export const profileSchema = z.object({
 export const selectWinnerSchema = z.object({
   winnerId: z.string().uuid('Invalid winner ID'),
 })
+
+// Aliases for backward compatibility
+export const updateProfileSchema = profileSchema

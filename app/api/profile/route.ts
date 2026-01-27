@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
-import { updateProfileSchema } from '@/lib/validations'
-import { v4 as uuid } from 'uuid'
+import { profileSchema } from '@/lib/validations'
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,9 +13,8 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    
-    // Validate input
-    const result = updateProfileSchema.safeParse(body)
+    const result = profileSchema.safeParse(body)
+
     if (!result.success) {
       return NextResponse.json(
         { error: 'Validation failed', details: result.error.flatten() },
@@ -26,36 +24,43 @@ export async function POST(req: NextRequest) {
 
     const data = result.data
 
-    // Check username uniqueness if being updated
+    // Check if username is taken (if provided)
     if (data.username) {
-      const existing = await prisma.user.findFirst({
+      const existingUser = await prisma.user.findFirst({
         where: {
           username: data.username,
           NOT: { id: session.user.id },
         },
       })
 
-      if (existing) {
+      if (existingUser) {
         return NextResponse.json(
-          { error: 'Username already taken' },
-          { status: 409 }
+          { error: 'Username is already taken' },
+          { status: 400 }
         )
       }
     }
 
-    // Update user
-    const user = await prisma.user.update({
+    // Update user profile
+    const updatedUser = await prisma.user.update({
       where: { id: session.user.id },
       data: {
-        ...data,
-        updatedAt: new Date(),
+        name: data.name,
+        username: data.username,
+        bio: data.bio,
+        phone: data.phone,
+        instagram: data.instagram,
+        twitter: data.twitter,
+        location: data.location,
+        payoutBankName: data.payoutBankName,
+        payoutAccountNumber: data.payoutAccountNumber,
+        payoutAccountName: data.payoutAccountName,
       },
       select: {
         id: true,
         name: true,
         username: true,
         email: true,
-        image: true,
         bio: true,
         phone: true,
         instagram: true,
@@ -67,19 +72,9 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Log update
-    await prisma.auditLog.create({
-      data: {
-        id: uuid(),
-        userId: session.user.id,
-        action: 'PROFILE_UPDATED',
-        meta: JSON.stringify({ fields: Object.keys(data) }),
-      },
-    })
-
-    return NextResponse.json(user)
+    return NextResponse.json(updatedUser)
   } catch (error) {
-    console.error('Update profile error:', error)
+    console.error('Profile update error:', error)
     return NextResponse.json(
       { error: 'Failed to update profile' },
       { status: 500 }
