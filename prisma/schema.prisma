@@ -8,32 +8,35 @@ datasource db {
 }
 
 model User {
-  id                  String    @id @default(uuid())
-  name                String?
-  username            String?   @unique
-  email               String?   @unique
-  emailVerified       DateTime?
-  image               String?
-  passwordHash        String?
-  bio                 String?
-  phone               String?
-  instagram           String?
-  twitter             String?
-  location            String?
-  walletBalance       Int       @default(0)
+  id            String    @id @default(uuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  bio           String?
+  phone         String?
+  instagram     String?
+  twitter       String?
+  location      String?
+  walletBalance Int       @default(0)
+
+  // Payout details
   payoutBankName      String?
   payoutAccountNumber String?
   payoutAccountName   String?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
 
-  createdVibes  Vibe[]    @relation("CreatorVibes")
-  wonVibes      Vibe[]    @relation("WinnerVibes")
-  bids          Bid[]
-  payments      Payment[]
-  auditLogs     AuditLog[]
-  accounts      Account[]
-  sessions      Session[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  createdVibes Vibe[]    @relation("CreatorVibes")
+  wonVibes     Vibe[]    @relation("WinnerVibes")
+  bids         Bid[]
+  payments     Payment[]
+  auditLogs    AuditLog[]
+  accounts     Account[]
+  sessions     Session[]
 }
 
 model Account {
@@ -72,77 +75,65 @@ model VerificationToken {
 }
 
 model Vibe {
-  id            String    @id @default(uuid())
-  title         String
-  description   String
-  category      String?
-  mediaUrl      String?
-  weirdness     Int       @default(5)
-  startingBid   Int
-  minIncrement  Int       @default(100)
-  currentBid    Int
-  endAt         DateTime
-  status        String    @default("ACTIVE")
-  creatorId     String
-  winnerUserId  String?
-  selectedAt    DateTime?
-  paymentDueAt  DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id           String   @id @default(uuid())
+  title        String
+  description  String
+  category     String?
+  mediaUrl     String?
+  weirdness    Int      @default(5)
+  startingBid  Int
+  minIncrement Int      @default(100)
+  currentBid   Int
+  status       String   @default("ACTIVE")
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  endAt        DateTime
+  selectedAt   DateTime?
+  paymentDueAt DateTime?
 
-  creator  User      @relation("CreatorVibes", fields: [creatorId], references: [id])
-  winner   User?     @relation("WinnerVibes", fields: [winnerUserId], references: [id])
-  bids     Bid[]
-  payments Payment[]
-
-  @@index([status])
-  @@index([endAt])
-  @@index([creatorId])
+  // Relations
+  creatorId    String
+  creator      User     @relation("CreatorVibes", fields: [creatorId], references: [id])
+  winnerUserId String?
+  winner       User?    @relation("WinnerVibes", fields: [winnerUserId], references: [id])
+  bids         Bid[]
+  payments     Payment[]
 }
 
 model Bid {
   id        String   @id @default(uuid())
-  vibeId    String
-  bidderId  String
   amount    Int
   createdAt DateTime @default(now())
 
-  vibe   Vibe @relation(fields: [vibeId], references: [id], onDelete: Cascade)
-  bidder User @relation(fields: [bidderId], references: [id])
-
-  @@index([vibeId, createdAt])
-  @@index([bidderId])
+  vibeId    String
+  vibe      Vibe     @relation(fields: [vibeId], references: [id])
+  bidderId  String
+  bidder    User     @relation(fields: [bidderId], references: [id])
 }
 
 model Payment {
-  id         String    @id @default(uuid())
-  vibeId     String
-  payerId    String
+  id         String   @id @default(uuid())
   amount     Int
   feeAmount  Int
   netAmount  Int
-  provider   String    @default("paystack")
-  reference  String    @unique
-  status     String    @default("INITIATED")
-  createdAt  DateTime  @default(now())
+  reference  String   @unique
+  status     String   @default("INITIATED")
   verifiedAt DateTime?
+  createdAt  DateTime @default(now())
 
-  vibe  Vibe @relation(fields: [vibeId], references: [id])
-  payer User @relation(fields: [payerId], references: [id])
-
-  @@index([reference])
-  @@index([vibeId])
+  vibeId     String
+  vibe       Vibe     @relation(fields: [vibeId], references: [id])
+  payerId    String
+  payer      User     @relation(fields: [payerId], references: [id])
 }
 
 model AuditLog {
   id        String   @id @default(uuid())
-  userId    String?
   action    String
   meta      String?
   createdAt DateTime @default(now())
 
-  user User? @relation(fields: [userId], references: [id])
-
-  @@index([userId])
-  @@index([action])
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
 }
