@@ -6,7 +6,8 @@ import { compare } from 'bcryptjs'
 import prisma from './prisma'
 
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma) as any,
+  // @ts-ignore - Prisma adapter type mismatch
+  adapter: PrismaAdapter(prisma),
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || '',
@@ -18,9 +19,10 @@ export const authOptions: NextAuthOptions = {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(credentials): Promise<any> {
+      // @ts-ignore - authorize type mismatch
+      async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
-          throw new Error('Email and password required')
+          return null
         }
 
         const user = await prisma.user.findUnique({
@@ -28,13 +30,13 @@ export const authOptions: NextAuthOptions = {
         })
 
         if (!user || !user.passwordHash) {
-          throw new Error('Invalid email or password')
+          return null
         }
 
         const isValid = await compare(credentials.password, user.passwordHash)
 
         if (!isValid) {
-          throw new Error('Invalid email or password')
+          return null
         }
 
         return {
@@ -61,7 +63,8 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as any).id = token.id
+        // @ts-ignore
+        session.user.id = token.id
       }
       return session
     },
