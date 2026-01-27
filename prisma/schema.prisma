@@ -1,0 +1,148 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String    @id @default(uuid())
+  name                String?
+  username            String?   @unique
+  email               String?   @unique
+  emailVerified       DateTime?
+  image               String?
+  passwordHash        String?
+  bio                 String?
+  phone               String?
+  instagram           String?
+  twitter             String?
+  location            String?
+  walletBalance       Int       @default(0)
+  payoutBankName      String?
+  payoutAccountNumber String?
+  payoutAccountName   String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  createdVibes  Vibe[]    @relation("CreatorVibes")
+  wonVibes      Vibe[]    @relation("WinnerVibes")
+  bids          Bid[]
+  payments      Payment[]
+  auditLogs     AuditLog[]
+  accounts      Account[]
+  sessions      Session[]
+}
+
+model Account {
+  id                String  @id @default(uuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Vibe {
+  id            String    @id @default(uuid())
+  title         String
+  description   String
+  category      String?
+  mediaUrl      String?
+  weirdness     Int       @default(5)
+  startingBid   Int
+  minIncrement  Int       @default(100)
+  currentBid    Int
+  endAt         DateTime
+  status        String    @default("ACTIVE")
+  creatorId     String
+  winnerUserId  String?
+  selectedAt    DateTime?
+  paymentDueAt  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  creator  User      @relation("CreatorVibes", fields: [creatorId], references: [id])
+  winner   User?     @relation("WinnerVibes", fields: [winnerUserId], references: [id])
+  bids     Bid[]
+  payments Payment[]
+
+  @@index([status])
+  @@index([endAt])
+  @@index([creatorId])
+}
+
+model Bid {
+  id        String   @id @default(uuid())
+  vibeId    String
+  bidderId  String
+  amount    Int
+  createdAt DateTime @default(now())
+
+  vibe   Vibe @relation(fields: [vibeId], references: [id], onDelete: Cascade)
+  bidder User @relation(fields: [bidderId], references: [id])
+
+  @@index([vibeId, createdAt])
+  @@index([bidderId])
+}
+
+model Payment {
+  id         String    @id @default(uuid())
+  vibeId     String
+  payerId    String
+  amount     Int
+  feeAmount  Int
+  netAmount  Int
+  provider   String    @default("paystack")
+  reference  String    @unique
+  status     String    @default("INITIATED")
+  createdAt  DateTime  @default(now())
+  verifiedAt DateTime?
+
+  vibe  Vibe @relation(fields: [vibeId], references: [id])
+  payer User @relation(fields: [payerId], references: [id])
+
+  @@index([reference])
+  @@index([vibeId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  meta      String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+}
