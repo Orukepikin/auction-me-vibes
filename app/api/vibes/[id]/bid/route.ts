@@ -4,9 +4,7 @@ import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { bidSchema } from '@/lib/validations'
 import { v4 as uuid } from 'uuid'
-import { VibeStatus } from '@/lib/utils'
-import { sendEmail, outbidEmailTemplate } from '@/lib/email'
-import { formatCurrency } from '@/lib/utils'
+import { VibeStatus, formatCurrency } from '@/lib/utils'
 
 // Simple in-memory rate limiting
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
@@ -16,7 +14,7 @@ function checkRateLimit(userId: string): boolean {
   const limit = rateLimitMap.get(userId)
 
   if (!limit || now > limit.resetAt) {
-    rateLimitMap.set(userId, { count: 1, resetAt: now + 60000 }) // 1 minute window
+    rateLimitMap.set(userId, { count: 1, resetAt: now + 60000 })
     return true
   }
 
@@ -63,21 +61,6 @@ export async function POST(
     // Get the vibe
     const vibe = await prisma.vibe.findUnique({
       where: { id: vibeId },
-      include: {
-        bids: {
-          orderBy: { amount: 'desc' },
-          take: 1,
-          include: {
-            bidder: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-              },
-            },
-          },
-        },
-      },
     })
 
     if (!vibe) {
@@ -104,9 +87,6 @@ export async function POST(
       )
     }
 
-    // Get the previous highest bidder for notification
-    const previousHighestBidder = vibe.bids[0]?.bidder
-
     // Create the bid and update vibe
     const bid = await prisma.bid.create({
       data: {
@@ -121,27 +101,6 @@ export async function POST(
       where: { id: vibeId },
       data: { currentBid: amount },
     })
-
-    // Send outbid notification email to previous highest bidder
-    if (
-      previousHighestBidder &&
-      previousHighestBidder.id !== session.user.id &&
-      previousHighestBidder.email
-    ) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-      const vibeUrl = `${appUrl}/vibe/${vibeId}`
-
-      await sendEmail({
-        to: previousHighestBidder.email,
-        subject: `You've been outbid on "${vibe.title}"`,
-        html: outbidEmailTemplate({
-          userName: previousHighestBidder.name || 'Bidder',
-          vibeTitle: vibe.title,
-          newBidAmount: formatCurrency(amount),
-          vibeUrl,
-        }),
-      })
-    }
 
     // Log the action
     await prisma.auditLog.create({
