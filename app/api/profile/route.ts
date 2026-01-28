@@ -24,29 +24,11 @@ export async function POST(req: NextRequest) {
 
     const data = result.data
 
-    // Check if username is taken (if provided)
-    if (data.username) {
-      const existingUser = await prisma.user.findFirst({
-        where: {
-          username: data.username,
-          NOT: { id: session.user.id },
-        },
-      })
-
-      if (existingUser) {
-        return NextResponse.json(
-          { error: 'Username is already taken' },
-          { status: 400 }
-        )
-      }
-    }
-
     // Update user profile
     const updatedUser = await prisma.user.update({
       where: { id: session.user.id },
       data: {
         name: data.name,
-        username: data.username,
         bio: data.bio,
         phone: data.phone,
         instagram: data.instagram,
@@ -59,7 +41,6 @@ export async function POST(req: NextRequest) {
       select: {
         id: true,
         name: true,
-        username: true,
         email: true,
         bio: true,
         phone: true,

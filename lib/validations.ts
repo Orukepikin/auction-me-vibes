@@ -28,7 +28,6 @@ export const bidSchema = z.object({
 
 export const profileSchema = z.object({
   name: z.string().min(2).optional(),
-  username: z.string().min(3).max(20).optional(),
   bio: z.string().max(500).optional(),
   phone: z.string().optional(),
   instagram: z.string().optional(),
@@ -43,5 +42,5 @@ export const selectWinnerSchema = z.object({
   winnerId: z.string().uuid('Invalid winner ID'),
 })
 
-// Aliases for backward compatibility
+// Alias for backward compatibility
 export const updateProfileSchema = profileSchema
