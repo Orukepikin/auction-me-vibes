@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -11,9 +11,10 @@ import { useToast } from '@/components/ui/toast'
 export default function LoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard'
+  const callbackUrl = searchParams?.get('callbackUrl') || '/dashboard'
   const { addToast } = useToast()
 
+  const [mounted, setMounted] = useState(false)
   const [isLogin, setIsLogin] = useState(true)
   const [loading, setLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
@@ -24,6 +25,10 @@ export default function LoginPage() {
     password: '',
     confirmPassword: '',
   })
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
@@ -89,6 +94,14 @@ export default function LoginPage() {
   const handleGoogleSignIn = async () => {
     setGoogleLoading(true)
     await signIn('google', { callbackUrl })
+  }
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-dark-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
   }
 
   return (
