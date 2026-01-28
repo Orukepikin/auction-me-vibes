@@ -1,37 +1,35 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Navbar } from '@/components/navbar'
 import { Button } from '@/components/ui/button'
 
-function PaymentVerification() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const reference = searchParams?.get('reference')
+export default function PayCallbackPage() {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [message, setMessage] = useState('')
-  const [vibeId, setVibeId] = useState<string | null>(null)
 
   useEffect(() => {
+    // Get reference from URL on client side
+    const params = new URLSearchParams(window.location.search)
+    const reference = params.get('reference')
+    
     if (!reference) {
       setStatus('error')
       setMessage('No payment reference found')
       return
     }
 
-    verifyPayment()
-  }, [reference])
+    verifyPayment(reference)
+  }, [])
 
-  const verifyPayment = async () => {
+  const verifyPayment = async (reference: string) => {
     try {
       const paymentRes = await fetch(`/api/payments/${reference}`)
       if (!paymentRes.ok) {
         throw new Error('Payment not found')
       }
       const payment = await paymentRes.json()
-      setVibeId(payment.vibeId)
 
       const verifyRes = await fetch(`/api/vibes/${payment.vibeId}/pay/verify`, {
         method: 'POST',
@@ -55,70 +53,41 @@ function PaymentVerification() {
   }
 
   return (
-    <div className="max-w-md mx-auto px-4 text-center">
-      {status === 'loading' && (
-        <>
-          <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
-          <h1 className="text-2xl font-bold mb-2">Verifying Payment</h1>
-          <p className="text-gray-400">Please wait while we confirm your payment...</p>
-        </>
-      )}
-
-      {status === 'success' && (
-        <>
-          <span className="text-7xl block mb-6">🎉</span>
-          <h1 className="text-2xl font-bold text-green-400 mb-2">Payment Successful!</h1>
-          <p className="text-gray-400 mb-8">{message}</p>
-          {vibeId ? (
-            <Link href={`/vibe/${vibeId}`}>
-              <Button size="lg">View Vibe & Contact Creator</Button>
-            </Link>
-          ) : (
-            <Link href="/dashboard">
-              <Button size="lg">Go to Dashboard</Button>
-            </Link>
-          )}
-        </>
-      )}
-
-      {status === 'error' && (
-        <>
-          <span className="text-7xl block mb-6">😕</span>
-          <h1 className="text-2xl font-bold text-red-400 mb-2">Payment Failed</h1>
-          <p className="text-gray-400 mb-8">{message}</p>
-          <div className="flex gap-4 justify-center">
-            <Link href="/dashboard">
-              <Button variant="secondary">Go to Dashboard</Button>
-            </Link>
-            {vibeId && (
-              <Link href={`/vibe/${vibeId}`}>
-                <Button>Try Again</Button>
-              </Link>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
-function LoadingSpinner() {
-  return (
-    <div className="max-w-md mx-auto px-4 text-center">
-      <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
-      <h1 className="text-2xl font-bold mb-2">Loading...</h1>
-    </div>
-  )
-}
-
-export default function PayCallbackPage() {
-  return (
     <div className="min-h-screen bg-dark-950">
       <Navbar />
+      
       <main className="pt-32 pb-12">
-        <Suspense fallback={<LoadingSpinner />}>
-          <PaymentVerification />
-        </Suspense>
+        <div className="max-w-md mx-auto px-4 text-center">
+          {status === 'loading' && (
+            <>
+              <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
+              <h1 className="text-2xl font-bold mb-2">Verifying Payment</h1>
+              <p className="text-gray-400">Please wait while we confirm your payment...</p>
+            </>
+          )}
+
+          {status === 'success' && (
+            <>
+              <span className="text-7xl block mb-6">🎉</span>
+              <h1 className="text-2xl font-bold text-green-400 mb-2">Payment Successful!</h1>
+              <p className="text-gray-400 mb-8">{message}</p>
+              <Link href="/dashboard">
+                <Button size="lg">Go to Dashboard</Button>
+              </Link>
+            </>
+          )}
+
+          {status === 'error' && (
+            <>
+              <span className="text-7xl block mb-6">😕</span>
+              <h1 className="text-2xl font-bold text-red-400 mb-2">Payment Failed</h1>
+              <p className="text-gray-400 mb-8">{message}</p>
+              <Link href="/dashboard">
+                <Button variant="secondary">Go to Dashboard</Button>
+              </Link>
+            </>
+          )}
+        </div>
       </main>
     </div>
   )
