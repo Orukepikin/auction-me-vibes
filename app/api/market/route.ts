@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
-import { VibeStatus } from '@/lib/utils'
 
 export async function GET(req: NextRequest) {
   try {
@@ -86,7 +85,6 @@ export async function GET(req: NextRequest) {
           select: {
             id: true,
             name: true,
-            username: true,
             image: true,
           },
         },
