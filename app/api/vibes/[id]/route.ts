@@ -11,8 +11,6 @@ export async function GET(
     const session = await getServerSession(authOptions)
     const vibeId = params.id
 
-    console.log('Fetching vibe with ID:', vibeId)
-
     const vibe = await prisma.vibe.findUnique({
       where: { id: vibeId },
       include: {
@@ -20,7 +18,6 @@ export async function GET(
           select: {
             id: true,
             name: true,
-            username: true,
             image: true,
             bio: true,
             phone: true,
@@ -33,8 +30,6 @@ export async function GET(
           select: {
             id: true,
             name: true,
-            username: true,
-            image: true,
             phone: true,
             email: true,
             instagram: true,
@@ -42,14 +37,13 @@ export async function GET(
           },
         },
         bids: {
-          orderBy: { createdAt: 'desc' },
+          orderBy: { amount: 'desc' },
           take: 20,
           include: {
             bidder: {
               select: {
                 id: true,
                 name: true,
-                username: true,
                 image: true,
               },
             },
@@ -62,19 +56,42 @@ export async function GET(
     })
 
     if (!vibe) {
-      console.log('Vibe not found for ID:', vibeId)
       return NextResponse.json({ error: 'Vibe not found' }, { status: 404 })
     }
 
+    // Determine user permissions
     const isCreator = session?.user?.id === vibe.creatorId
     const isWinner = session?.user?.id === vibe.winnerUserId
-    const isPaidOrCompleted = vibe.status === 'PAID' || vibe.status === 'COMPLETED'
 
-    // Build response
-    const response: any = { ...vibe }
+    // Check if payment is completed
+    const payment = vibe.winnerUserId
+      ? await prisma.payment.findFirst({
+          where: {
+            vibeId,
+            payerId: vibe.winnerUserId,
+            status: 'SUCCESS',
+          },
+        })
+      : null
 
-    // Hide contact info unless paid and user is creator or winner
-    if (!isPaidOrCompleted || (!isCreator && !isWinner)) {
+    const isPaid = !!payment
+
+    // Only show contact info if:
+    // 1. User is the creator and payment is complete, OR
+    // 2. User is the winner and payment is complete
+    const contactsUnlocked = isPaid && (isCreator || isWinner)
+
+    // Remove sensitive info if contacts not unlocked
+    const response: any = {
+      ...vibe,
+      canBid: !isCreator && vibe.status === 'ACTIVE',
+      canSelectWinner: isCreator && vibe.status === 'ENDED' && !vibe.winnerUserId,
+      canPay: isWinner && vibe.status === 'ENDED' && !isPaid,
+      contactsUnlocked,
+    }
+
+    // Hide contact info if not unlocked
+    if (!contactsUnlocked) {
       if (response.creator) {
         delete response.creator.phone
         delete response.creator.email
@@ -89,17 +106,9 @@ export async function GET(
       }
     }
 
-    // Add permission flags
-    response.canBid = session?.user?.id && 
-                      vibe.status === 'ACTIVE' && 
-                      session.user.id !== vibe.creatorId
-    response.canSelectWinner = isCreator && vibe.status === 'ENDED' && !vibe.winnerUserId
-    response.canPay = isWinner && vibe.status === 'ENDED' && vibe.winnerUserId
-    response.contactsUnlocked = isPaidOrCompleted && (isCreator || isWinner)
-
     return NextResponse.json(response)
   } catch (error) {
-    console.error('Get vibe error:', error)
+    console.error('Vibe fetch error:', error)
     return NextResponse.json(
       { error: 'Failed to fetch vibe' },
       { status: 500 }
