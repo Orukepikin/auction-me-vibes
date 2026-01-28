@@ -16,7 +16,6 @@ export async function GET() {
       select: {
         id: true,
         name: true,
-        username: true,
         email: true,
         image: true,
         bio: true,
@@ -28,7 +27,6 @@ export async function GET() {
         payoutBankName: true,
         payoutAccountNumber: true,
         payoutAccountName: true,
-        createdAt: true,
       },
     })
 
@@ -38,7 +36,7 @@ export async function GET() {
 
     return NextResponse.json(user)
   } catch (error) {
-    console.error('Get me error:', error)
+    console.error('Me API error:', error)
     return NextResponse.json(
       { error: 'Failed to fetch user' },
       { status: 500 }
