@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
-import { VibeStatus, PaymentStatus } from '@/lib/utils'
 import { v4 as uuid } from 'uuid'
 
 export async function POST(
@@ -16,20 +15,17 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const vibeId = params.id
     const { reference } = await req.json()
 
     if (!reference) {
       return NextResponse.json({ error: 'Reference is required' }, { status: 400 })
     }
 
-    const vibeId = params.id
-
-    // Find the payment
+    // Get payment record
     const payment = await prisma.payment.findUnique({
       where: { reference },
-      include: {
-        vibe: true,
-      },
+      include: { vibe: true },
     })
 
     if (!payment) {
@@ -40,102 +36,111 @@ export async function POST(
       return NextResponse.json({ error: 'Payment does not match vibe' }, { status: 400 })
     }
 
-    if (payment.status === PaymentStatus.SUCCESS) {
-      return NextResponse.json({ message: 'Payment already verified', status: 'success' })
+    // Already verified
+    if (payment.status === 'SUCCESS') {
+      return NextResponse.json({ status: 'success', message: 'Payment already verified' })
     }
 
     // Verify with Paystack
-    const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY
-
-    if (!paystackSecretKey) {
-      // Mock verification for development
-      await prisma.payment.update({
-        where: { reference },
-        data: {
-          status: PaymentStatus.SUCCESS,
-          verifiedAt: new Date(),
-        },
-      })
-
-      await prisma.vibe.update({
-        where: { id: vibeId },
-        data: { status: VibeStatus.PAID },
-      })
-
-      // Add to creator wallet
-      await prisma.user.update({
-        where: { id: payment.vibe.creatorId },
-        data: {
-          walletBalance: { increment: payment.netAmount },
-        },
-      })
-
-      return NextResponse.json({ message: 'Payment verified (mock)', status: 'success' })
-    }
-
-    const verifyResponse = await fetch(
+    const paystackResponse = await fetch(
       `https://api.paystack.co/transaction/verify/${reference}`,
       {
+        method: 'GET',
         headers: {
-          Authorization: `Bearer ${paystackSecretKey}`,
+          'Authorization': `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
         },
       }
     )
 
-    const verifyData = await verifyResponse.json()
+    const paystackData = await paystackResponse.json()
 
-    if (!verifyData.status || verifyData.data.status !== 'success') {
+    if (!paystackData.status) {
+      return NextResponse.json(
+        { error: 'Verification failed', details: paystackData.message },
+        { status: 400 }
+      )
+    }
+
+    const transaction = paystackData.data
+
+    // Check if payment was successful
+    if (transaction.status !== 'success') {
       await prisma.payment.update({
-        where: { reference },
-        data: { status: PaymentStatus.FAILED },
+        where: { id: payment.id },
+        data: { status: 'FAILED' },
       })
 
       return NextResponse.json(
-        { error: 'Payment verification failed', status: 'failed' },
+        { error: 'Payment was not successful', status: transaction.status },
+        { status: 400 }
+      )
+    }
+
+    // Verify amount matches (Paystack returns in kobo)
+    const expectedAmount = payment.amount * 100
+    if (transaction.amount !== expectedAmount) {
+      return NextResponse.json(
+        { error: 'Amount mismatch' },
         { status: 400 }
       )
     }
 
     // Update payment status
     await prisma.payment.update({
-      where: { reference },
+      where: { id: payment.id },
       data: {
-        status: PaymentStatus.SUCCESS,
+        status: 'SUCCESS',
         verifiedAt: new Date(),
       },
     })
 
-    // Update vibe status
+    // Update vibe status to PAID
     await prisma.vibe.update({
       where: { id: vibeId },
-      data: { status: VibeStatus.PAID },
-    })
-
-    // Add to creator wallet
-    await prisma.user.update({
-      where: { id: payment.vibe.creatorId },
       data: {
-        walletBalance: { increment: payment.netAmount },
+        status: 'PAID',
+        escrowAmount: payment.netAmount,
       },
     })
+
+    // Create conversation between creator and winner
+    const existingConversation = await prisma.conversation.findUnique({
+      where: { vibeId },
+    })
+
+    if (!existingConversation) {
+      await prisma.conversation.create({
+        data: {
+          id: uuid(),
+          vibeId,
+          user1Id: payment.vibe.creatorId,
+          user2Id: payment.payerId,
+        },
+      })
+    }
 
     // Log the action
     await prisma.auditLog.create({
       data: {
         id: uuid(),
         userId: session.user.id,
-        action: 'PAYMENT_COMPLETED',
+        action: 'PAYMENT_SUCCESS',
         meta: JSON.stringify({
           vibeId,
           reference,
           amount: payment.amount,
+          paystackRef: transaction.reference,
         }),
       },
     })
 
-    return NextResponse.json({ message: 'Payment verified', status: 'success' })
+    return NextResponse.json({
+      status: 'success',
+      message: 'Payment verified successfully',
+      vibeId,
+    })
   } catch (error) {
-    console.error('Payment verify error:', error)
+    console.error('Payment verification error:', error)
     return NextResponse.json(
       { error: 'Failed to verify payment' },
       { status: 500 }

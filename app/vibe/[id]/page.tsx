@@ -13,11 +13,15 @@ interface Bid {
   id: string
   amount: number
   createdAt: string
-  bidder: {
-    id: string
-    name: string
-    image: string | null
-  }
+  bidder: { id: string; name: string; image: string | null }
+}
+
+interface Review {
+  id: string
+  rating: number
+  comment: string | null
+  createdAt: string
+  reviewer: { id: string; name: string; image: string | null }
 }
 
 interface Vibe {
@@ -33,8 +37,8 @@ interface Vibe {
   status: string
   createdAt: string
   endAt: string
-  selectedAt: string | null
-  paymentDueAt: string | null
+  deliveredAt: string | null
+  completedAt: string | null
   creatorId: string
   winnerUserId: string | null
   creator: {
@@ -42,25 +46,18 @@ interface Vibe {
     name: string
     image: string | null
     bio: string | null
+    isVerified?: boolean
+    verificationLevel?: string
+    averageRating?: number
+    totalReviews?: number
     phone?: string
     email?: string
     instagram?: string
     twitter?: string
   }
-  winner?: {
-    id: string
-    name: string
-    phone?: string
-    email?: string
-    instagram?: string
-    twitter?: string
-  }
+  winner?: { id: string; name: string }
   bids: Bid[]
-  _count: { bids: number }
-  canBid: boolean
-  canSelectWinner: boolean
-  canPay: boolean
-  contactsUnlocked: boolean
+  reviews?: Review[]
 }
 
 function CountdownTimer({ endAt }: { endAt: string }) {
@@ -68,42 +65,27 @@ function CountdownTimer({ endAt }: { endAt: string }) {
   const [isEnded, setIsEnded] = useState(false)
 
   useEffect(() => {
-    const calculateTimeLeft = () => {
-      const now = new Date().getTime()
-      const end = new Date(endAt).getTime()
-      const difference = end - now
-
-      if (difference <= 0) {
-        setIsEnded(true)
-        setTimeLeft('Ended')
-        return
-      }
-
-      const days = Math.floor(difference / (1000 * 60 * 60 * 24))
-      const hours = Math.floor((difference % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-      const minutes = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60))
-      const seconds = Math.floor((difference % (1000 * 60)) / 1000)
-
-      if (days > 0) {
-        setTimeLeft(`${days}d ${hours}h ${minutes}m`)
-      } else if (hours > 0) {
-        setTimeLeft(`${hours}h ${minutes}m ${seconds}s`)
-      } else if (minutes > 0) {
-        setTimeLeft(`${minutes}m ${seconds}s`)
-      } else {
-        setTimeLeft(`${seconds}s`)
-      }
+    const calc = () => {
+      const diff = new Date(endAt).getTime() - Date.now()
+      if (diff <= 0) { setIsEnded(true); setTimeLeft('Ended'); return }
+      const d = Math.floor(diff / 86400000)
+      const h = Math.floor((diff % 86400000) / 3600000)
+      const m = Math.floor((diff % 3600000) / 60000)
+      const s = Math.floor((diff % 60000) / 1000)
+      setTimeLeft(d > 0 ? `${d}d ${h}h ${m}m` : h > 0 ? `${h}h ${m}m ${s}s` : m > 0 ? `${m}m ${s}s` : `${s}s`)
     }
-
-    calculateTimeLeft()
-    const timer = setInterval(calculateTimeLeft, 1000)
-
-    return () => clearInterval(timer)
+    calc()
+    const t = setInterval(calc, 1000)
+    return () => clearInterval(t)
   }, [endAt])
 
+  return <div className={`text-2xl font-bold ${isEnded ? 'text-red-400' : 'text-green-400'}`}>{timeLeft}</div>
+}
+
+function StarRating({ rating }: { rating: number }) {
   return (
-    <div className={`text-2xl font-bold ${isEnded ? 'text-red-400' : 'text-green-400'}`}>
-      {timeLeft}
+    <div className="flex gap-0.5">
+      {[1,2,3,4,5].map(s => <span key={s} className={s <= rating ? 'text-yellow-400' : 'text-gray-600'}>★</span>)}
     </div>
   )
 }
@@ -120,188 +102,172 @@ export default function VibePage() {
   const [bidding, setBidding] = useState(false)
   const [ending, setEnding] = useState(false)
   const [selecting, setSelecting] = useState(false)
+  const [paying, setPaying] = useState(false)
+  const [delivering, setDelivering] = useState(false)
+  const [completing, setCompleting] = useState(false)
+  const [startingChat, setStartingChat] = useState(false)
   const [selectedWinner, setSelectedWinner] = useState<string | null>(null)
+  
+  const [showReviewForm, setShowReviewForm] = useState(false)
+  const [reviewRating, setReviewRating] = useState(5)
+  const [reviewComment, setReviewComment] = useState('')
+  const [reviewing, setReviewing] = useState(false)
 
-  useEffect(() => {
-    fetchVibe()
-  }, [params.id])
+  useEffect(() => { fetchVibe() }, [params.id])
 
   const fetchVibe = async () => {
     try {
       const res = await fetch(`/api/vibes/${params.id}`)
-      if (!res.ok) throw new Error('Vibe not found')
+      if (!res.ok) throw new Error('Not found')
       const data = await res.json()
       setVibe(data)
       setBidAmount(String(data.currentBid + data.minIncrement))
-    } catch (error) {
-      addToast('Failed to load vibe', 'error')
-    } finally {
-      setLoading(false)
-    }
+    } catch { addToast('Failed to load vibe', 'error') }
+    finally { setLoading(false) }
   }
 
   const handleBid = async () => {
-    if (!session) {
-      router.push('/login')
-      return
-    }
-
+    if (!session) { router.push('/login'); return }
     setBidding(true)
     try {
       const res = await fetch(`/api/vibes/${params.id}/bid`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount: parseInt(bidAmount) }),
       })
-
       const data = await res.json()
-
-      if (!res.ok) {
-        addToast(data.error || 'Failed to place bid', 'error')
-      } else {
-        addToast('Bid placed successfully! 🎉', 'success')
-        fetchVibe()
-      }
-    } catch (error) {
-      addToast('Failed to place bid', 'error')
-    } finally {
-      setBidding(false)
-    }
+      if (!res.ok) addToast(data.error || 'Failed', 'error')
+      else { addToast('Bid placed! 🎉', 'success'); fetchVibe() }
+    } catch { addToast('Failed to bid', 'error') }
+    finally { setBidding(false) }
   }
 
   const handleEndAuction = async () => {
-    if (!confirm('Are you sure you want to end this auction early?')) return
-
+    if (!confirm('End auction early?')) return
     setEnding(true)
     try {
-      const res = await fetch(`/api/vibes/${params.id}/end`, {
-        method: 'POST',
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        addToast(data.error || 'Failed to end auction', 'error')
-      } else {
-        addToast('Auction ended! Now select a winner.', 'success')
-        fetchVibe()
-      }
-    } catch (error) {
-      addToast('Failed to end auction', 'error')
-    } finally {
-      setEnding(false)
-    }
+      const res = await fetch(`/api/vibes/${params.id}/end`, { method: 'POST' })
+      if (!res.ok) { const d = await res.json(); addToast(d.error || 'Failed', 'error') }
+      else { addToast('Auction ended!', 'success'); fetchVibe() }
+    } catch { addToast('Failed', 'error') }
+    finally { setEnding(false) }
   }
 
   const handleSelectWinner = async (winnerId: string) => {
-    if (!confirm('Are you sure you want to select this bidder as the winner?')) return
-
-    setSelecting(true)
-    setSelectedWinner(winnerId)
+    if (!confirm('Select this winner?')) return
+    setSelecting(true); setSelectedWinner(winnerId)
     try {
       const res = await fetch(`/api/vibes/${params.id}/select-winner`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ winnerId }),
       })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        addToast(data.error || 'Failed to select winner', 'error')
-      } else {
-        addToast('Winner selected! Waiting for payment.', 'success')
-        fetchVibe()
-      }
-    } catch (error) {
-      addToast('Failed to select winner', 'error')
-    } finally {
-      setSelecting(false)
-      setSelectedWinner(null)
-    }
+      if (!res.ok) { const d = await res.json(); addToast(d.error || 'Failed', 'error') }
+      else { addToast('Winner selected!', 'success'); fetchVibe() }
+    } catch { addToast('Failed', 'error') }
+    finally { setSelecting(false); setSelectedWinner(null) }
   }
 
   const handlePay = async () => {
+    setPaying(true)
     try {
-      const res = await fetch(`/api/vibes/${params.id}/pay/init`, {
-        method: 'POST',
-      })
-
+      const res = await fetch(`/api/vibes/${params.id}/pay/init`, { method: 'POST' })
       const data = await res.json()
-
-      if (!res.ok) {
-        addToast(data.error || 'Failed to initialize payment', 'error')
-      } else {
-        // Redirect to payment page
-        window.location.href = data.authorization_url
-      }
-    } catch (error) {
-      addToast('Failed to initialize payment', 'error')
-    }
+      if (!res.ok) { addToast(data.error || 'Payment failed', 'error'); return }
+      // Redirect to Paystack
+      window.location.href = data.authorization_url
+    } catch { addToast('Payment failed', 'error') }
+    finally { setPaying(false) }
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-dark-950">
-        <Navbar />
-        <main className="pt-24 pb-12">
-          <div className="max-w-6xl mx-auto px-4">
-            <div className="flex items-center justify-center py-20">
-              <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-          </div>
-        </main>
-      </div>
-    )
+  const handleStartConversation = async () => {
+    setStartingChat(true)
+    try {
+      const res = await fetch(`/api/vibes/${params.id}/conversation`, { method: 'POST' })
+      if (res.ok) router.push('/messages')
+      else { const d = await res.json(); addToast(d.error || 'Failed', 'error') }
+    } catch { addToast('Failed', 'error') }
+    finally { setStartingChat(false) }
   }
 
-  if (!vibe) {
-    return (
-      <div className="min-h-screen bg-dark-950">
-        <Navbar />
-        <main className="pt-24 pb-12">
-          <div className="max-w-6xl mx-auto px-4 text-center py-20">
-            <h1 className="text-2xl font-bold mb-4">Vibe not found</h1>
-            <Link href="/market">
-              <Button>Back to Market</Button>
-            </Link>
-          </div>
-        </main>
-      </div>
-    )
+  const handleMarkDelivered = async () => {
+    if (!confirm('Mark as delivered?')) return
+    setDelivering(true)
+    try {
+      const res = await fetch(`/api/vibes/${params.id}/deliver`, { method: 'POST' })
+      if (!res.ok) { const d = await res.json(); addToast(d.error || 'Failed', 'error') }
+      else { addToast('Marked delivered!', 'success'); fetchVibe() }
+    } catch { addToast('Failed', 'error') }
+    finally { setDelivering(false) }
   }
+
+  const handleConfirmComplete = async () => {
+    if (!confirm('Confirm received? This releases payment.')) return
+    setCompleting(true)
+    try {
+      const res = await fetch(`/api/vibes/${params.id}/complete`, { method: 'POST' })
+      if (!res.ok) { const d = await res.json(); addToast(d.error || 'Failed', 'error') }
+      else { addToast('Completed! Leave a review.', 'success'); setShowReviewForm(true); fetchVibe() }
+    } catch { addToast('Failed', 'error') }
+    finally { setCompleting(false) }
+  }
+
+  const handleSubmitReview = async () => {
+    setReviewing(true)
+    try {
+      const res = await fetch(`/api/vibes/${params.id}/review`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating: reviewRating, comment: reviewComment }),
+      })
+      if (!res.ok) { const d = await res.json(); addToast(d.error || 'Failed', 'error') }
+      else { addToast('Review submitted!', 'success'); setShowReviewForm(false); fetchVibe() }
+    } catch { addToast('Failed', 'error') }
+    finally { setReviewing(false) }
+  }
+
+  if (loading) return (
+    <div className="min-h-screen bg-dark-950"><Navbar />
+      <main className="pt-24 pb-12"><div className="max-w-6xl mx-auto px-4 flex justify-center py-20">
+        <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
+      </div></main>
+    </div>
+  )
+
+  if (!vibe) return (
+    <div className="min-h-screen bg-dark-950"><Navbar />
+      <main className="pt-24 pb-12"><div className="max-w-6xl mx-auto px-4 text-center py-20">
+        <h1 className="text-2xl font-bold mb-4">Vibe not found</h1>
+        <Link href="/market"><Button>Back to Market</Button></Link>
+      </div></main>
+    </div>
+  )
 
   const isCreator = session?.user?.id === vibe.creatorId
   const isWinner = session?.user?.id === vibe.winnerUserId
   const isActive = vibe.status === 'ACTIVE'
   const isEnded = vibe.status === 'ENDED'
   const isPaid = vibe.status === 'PAID'
+  const isCompleted = vibe.status === 'COMPLETED'
   const hasEnded = new Date() > new Date(vibe.endAt)
+  
   const canEndEarly = isCreator && isActive && vibe.bids.length > 0
   const canSelectWinner = isCreator && (isEnded || (isActive && hasEnded)) && !vibe.winnerUserId && vibe.bids.length > 0
-  const canPay = isWinner && isEnded && !isPaid
+  const canPay = isWinner && isEnded && vibe.winnerUserId && vibe.status !== 'PAID' && vibe.status !== 'COMPLETED'
+  const canMessage = (isCreator || isWinner) && vibe.winnerUserId && (isPaid || isCompleted)
+  const canMarkDelivered = isCreator && isPaid && !vibe.deliveredAt
+  const canConfirmComplete = isWinner && vibe.deliveredAt && !isCompleted
+  const canReview = (isCreator || isWinner) && isCompleted
+  const alreadyReviewed = vibe.reviews?.some(r => r.reviewer.id === session?.user?.id)
 
   return (
-    <div className="min-h-screen bg-dark-950">
-      <Navbar />
-
+    <div className="min-h-screen bg-dark-950"><Navbar />
       <main className="pt-24 pb-12">
         <div className="max-w-6xl mx-auto px-4">
-          {/* Back button */}
-          <Link href="/market" className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-6 transition-colors">
-            ← Back to Market
-          </Link>
+          <Link href="/market" className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-6">← Back to Market</Link>
 
           <div className="grid lg:grid-cols-3 gap-8">
-            {/* Main Content */}
             <div className="lg:col-span-2 space-y-6">
               {/* Vibe Card */}
               <div className="glass-card rounded-2xl overflow-hidden">
-                {vibe.mediaUrl && (
-                  <div className="aspect-video bg-dark-800">
-                    <img src={vibe.mediaUrl} alt={vibe.title} className="w-full h-full object-cover" />
-                  </div>
-                )}
+                {vibe.mediaUrl && <div className="aspect-video bg-dark-800"><img src={vibe.mediaUrl} alt={vibe.title} className="w-full h-full object-cover" /></div>}
                 <div className="p-6">
                   <div className="flex items-start justify-between gap-4 mb-4">
                     <h1 className="text-2xl font-bold">{vibe.title}</h1>
@@ -309,54 +275,38 @@ export default function VibePage() {
                       isActive ? 'bg-green-500/20 text-green-400' :
                       isEnded ? 'bg-yellow-500/20 text-yellow-400' :
                       isPaid ? 'bg-blue-500/20 text-blue-400' :
+                      isCompleted ? 'bg-green-500/20 text-green-400' :
                       'bg-gray-500/20 text-gray-400'
-                    }`}>
-                      {vibe.status}
-                    </span>
+                    }`}>{vibe.status}</span>
                   </div>
                   <p className="text-gray-400 whitespace-pre-wrap">{vibe.description}</p>
-
-                  {vibe.category && (
-                    <div className="mt-4">
-                      <span className="px-3 py-1 bg-purple-500/20 text-purple-400 rounded-full text-sm">
-                        {vibe.category}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Weirdness meter */}
+                  {vibe.category && <div className="mt-4"><span className="px-3 py-1 bg-purple-500/20 text-purple-400 rounded-full text-sm">{vibe.category}</span></div>}
                   <div className="mt-6">
-                    <div className="flex justify-between text-sm mb-2">
-                      <span className="text-gray-400">Weirdness Level</span>
-                      <span className="text-purple-400">{vibe.weirdness}/10</span>
-                    </div>
-                    <div className="h-2 bg-dark-700 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-purple-500 to-pink-500"
-                        style={{ width: `${vibe.weirdness * 10}%` }}
-                      />
-                    </div>
+                    <div className="flex justify-between text-sm mb-2"><span className="text-gray-400">Weirdness</span><span className="text-purple-400">{vibe.weirdness}/10</span></div>
+                    <div className="h-2 bg-dark-700 rounded-full"><div className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full" style={{ width: `${vibe.weirdness * 10}%` }} /></div>
                   </div>
                 </div>
               </div>
 
-              {/* Creator Card */}
+              {/* Creator */}
               <div className="glass-card rounded-2xl p-6">
                 <h3 className="text-sm font-medium text-gray-400 mb-4">CREATOR</h3>
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-lg font-bold">
-                    {vibe.creator.name?.[0] || '?'}
-                  </div>
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-xl font-bold">{vibe.creator.name?.[0] || '?'}</div>
                   <div>
                     <p className="font-semibold">{vibe.creator.name}</p>
                     {vibe.creator.bio && <p className="text-sm text-gray-400">{vibe.creator.bio}</p>}
+                    {vibe.creator.averageRating !== undefined && (
+                      <div className="flex items-center gap-2 mt-1">
+                        <StarRating rating={Math.round(vibe.creator.averageRating || 0)} />
+                        <span className="text-sm text-gray-400">({vibe.creator.totalReviews || 0})</span>
+                      </div>
+                    )}
                   </div>
                 </div>
-
-                {/* Show contact info if unlocked */}
-                {vibe.contactsUnlocked && (
+                {isWinner && isCompleted && (vibe.creator.phone || vibe.creator.email) && (
                   <div className="mt-4 p-4 bg-green-500/10 border border-green-500/20 rounded-xl">
-                    <h4 className="text-green-400 font-medium mb-2">📞 Contact Info (Unlocked)</h4>
+                    <h4 className="text-green-400 font-medium mb-2">📞 Contact Info</h4>
                     {vibe.creator.email && <p className="text-sm">Email: {vibe.creator.email}</p>}
                     {vibe.creator.phone && <p className="text-sm">Phone: {vibe.creator.phone}</p>}
                     {vibe.creator.instagram && <p className="text-sm">Instagram: {vibe.creator.instagram}</p>}
@@ -365,173 +315,117 @@ export default function VibePage() {
                 )}
               </div>
 
-              {/* Bid History */}
+              {/* Bids */}
               <div className="glass-card rounded-2xl p-6">
                 <h3 className="text-sm font-medium text-gray-400 mb-4">BID HISTORY ({vibe.bids.length})</h3>
-                {vibe.bids.length === 0 ? (
-                  <p className="text-gray-500">No bids yet. Be the first!</p>
-                ) : (
+                {vibe.bids.length === 0 ? <p className="text-gray-500">No bids yet</p> : (
                   <div className="space-y-3">
-                    {vibe.bids.map((bid, index) => (
+                    {vibe.bids.map((bid, i) => (
                       <div key={bid.id} className={`flex items-center justify-between p-3 rounded-xl ${
-                        index === 0 ? 'bg-purple-500/10 border border-purple-500/20' : 'bg-dark-800'
+                        vibe.winnerUserId === bid.bidder.id ? 'bg-green-500/10 border border-green-500/20' :
+                        i === 0 ? 'bg-purple-500/10 border border-purple-500/20' : 'bg-dark-800'
                       }`}>
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold">
-                            {bid.bidder.name?.[0] || '?'}
-                          </div>
+                          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold">{bid.bidder.name?.[0]}</div>
                           <div>
-                            <p className="font-medium">{bid.bidder.name}</p>
-                            <p className="text-xs text-gray-400">
-                              {new Date(bid.createdAt).toLocaleDateString()}
-                            </p>
+                            <p className="font-medium">{bid.bidder.name} {vibe.winnerUserId === bid.bidder.id && <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full ml-2">WINNER</span>}</p>
+                            <p className="text-xs text-gray-400">{new Date(bid.createdAt).toLocaleDateString()}</p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className={`font-bold ${index === 0 ? 'text-purple-400' : ''}`}>
-                            {formatCurrency(bid.amount)}
-                          </p>
-                          {/* Select Winner Button */}
-                          {canSelectWinner && (
-                            <Button
-                              size="sm"
-                              onClick={() => handleSelectWinner(bid.bidder.id)}
-                              loading={selecting && selectedWinner === bid.bidder.id}
-                              className="mt-2"
-                            >
-                              Select Winner
-                            </Button>
-                          )}
+                          <p className={`font-bold ${i === 0 ? 'text-purple-400' : ''}`}>{formatCurrency(bid.amount)}</p>
+                          {canSelectWinner && <Button size="sm" onClick={() => handleSelectWinner(bid.bidder.id)} loading={selecting && selectedWinner === bid.bidder.id} className="mt-2">Select</Button>}
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
+
+              {/* Reviews */}
+              <div className="glass-card rounded-2xl p-6">
+                <h3 className="text-sm font-medium text-gray-400 mb-4">⭐ REVIEWS</h3>
+                {(showReviewForm || (canReview && !alreadyReviewed)) && (
+                  <div className="mb-6 p-4 bg-dark-800 rounded-xl">
+                    <h4 className="font-medium mb-3">Leave a Review</h4>
+                    <div className="mb-3">
+                      <div className="flex gap-2 text-2xl">
+                        {[1,2,3,4,5].map(s => <button key={s} onClick={() => setReviewRating(s)} className={s <= reviewRating ? 'text-yellow-400' : 'text-gray-600'}>★</button>)}
+                      </div>
+                    </div>
+                    <textarea value={reviewComment} onChange={e => setReviewComment(e.target.value)} rows={3} className="w-full px-4 py-3 bg-dark-700 border border-dark-600 rounded-xl mb-3" placeholder="Your review..." />
+                    <Button onClick={handleSubmitReview} loading={reviewing}>Submit</Button>
+                  </div>
+                )}
+                {vibe.reviews && vibe.reviews.length > 0 ? (
+                  <div className="space-y-4">
+                    {vibe.reviews.map(r => (
+                      <div key={r.id} className="p-4 bg-dark-800 rounded-xl">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold">{r.reviewer.name?.[0]}</div>
+                          <div><p className="font-medium">{r.reviewer.name}</p><StarRating rating={r.rating} /></div>
+                        </div>
+                        {r.comment && <p className="text-gray-400 text-sm">{r.comment}</p>}
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-gray-500">No reviews yet</p>}
+              </div>
             </div>
 
             {/* Sidebar */}
             <div className="space-y-6">
-              {/* Bid Info Card */}
               <div className="glass-card rounded-2xl p-6 sticky top-24">
-                <div className="space-y-4">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Current Bid</span>
-                    <span className="text-2xl font-bold text-purple-400">{formatCurrency(vibe.currentBid)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Min Increment</span>
-                    <span className="font-medium">{formatCurrency(vibe.minIncrement)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400">{hasEnded ? 'Ended' : 'Ends in'}</span>
-                    <CountdownTimer endAt={vibe.endAt} />
-                  </div>
+                <div className="space-y-4 mb-6">
+                  <div className="flex justify-between"><span className="text-gray-400">Current Bid</span><span className="text-2xl font-bold text-purple-400">{formatCurrency(vibe.currentBid)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-400">Min Increment</span><span>{formatCurrency(vibe.minIncrement)}</span></div>
+                  <div className="flex justify-between items-center"><span className="text-gray-400">{hasEnded ? 'Status' : 'Ends in'}</span><CountdownTimer endAt={vibe.endAt} /></div>
                 </div>
 
                 <div className="border-t border-dark-700 my-6" />
 
-                {/* Creator Actions */}
-                {isCreator && (
-                  <div className="space-y-3 mb-4">
-                    <p className="text-sm text-purple-400 font-medium">This is your vibe</p>
-                    
-                    {canEndEarly && (
-                      <Button
-                        variant="secondary"
-                        className="w-full"
-                        onClick={handleEndAuction}
-                        loading={ending}
-                      >
-                        End Auction Early
-                      </Button>
-                    )}
+                <div className="space-y-3">
+                  {/* Creator Actions */}
+                  {isCreator && <>
+                    <p className="text-sm text-purple-400 font-medium">👑 Your vibe</p>
+                    {canEndEarly && <Button variant="secondary" className="w-full" onClick={handleEndAuction} loading={ending}>End Early</Button>}
+                    {canSelectWinner && <p className="text-sm text-yellow-400">⬆️ Select winner above</p>}
+                    {canMessage && <Button className="w-full" onClick={handleStartConversation} loading={startingChat}>💬 Message Winner</Button>}
+                    {canMarkDelivered && <Button className="w-full bg-green-600 hover:bg-green-700" onClick={handleMarkDelivered} loading={delivering}>✓ Mark Delivered</Button>}
+                    {vibe.deliveredAt && !isCompleted && <p className="text-sm text-yellow-400">⏳ Waiting for confirmation...</p>}
+                    {isCompleted && <p className="text-sm text-green-400">✅ Completed!</p>}
+                  </>}
 
-                    {canSelectWinner && (
-                      <p className="text-sm text-yellow-400">
-                        ⬆️ Select a winner from the bid history above
-                      </p>
-                    )}
+                  {/* Winner Actions */}
+                  {isWinner && <>
+                    <p className="text-sm text-green-400 font-medium">🎉 You won!</p>
+                    {canPay && <Button className="w-full bg-green-600 hover:bg-green-700" onClick={handlePay} loading={paying}>💳 Pay {formatCurrency(vibe.currentBid)}</Button>}
+                    {canMessage && <Button variant="secondary" className="w-full" onClick={handleStartConversation} loading={startingChat}>💬 Message Creator</Button>}
+                    {canConfirmComplete && <Button className="w-full bg-green-600 hover:bg-green-700" onClick={handleConfirmComplete} loading={completing}>✓ Confirm Received</Button>}
+                    {isPaid && !vibe.deliveredAt && <p className="text-sm text-yellow-400">⏳ Waiting for delivery...</p>}
+                    {isCompleted && <p className="text-sm text-green-400">✅ Completed!</p>}
+                  </>}
 
-                    {vibe.winnerUserId && !isPaid && (
-                      <p className="text-sm text-yellow-400">
-                        ⏳ Waiting for winner to pay...
-                      </p>
-                    )}
-
-                    {isPaid && (
-                      <p className="text-sm text-green-400">
-                        ✅ Payment received! Contact info shared.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Winner Actions */}
-                {isWinner && (
-                  <div className="space-y-3 mb-4">
-                    <p className="text-sm text-green-400 font-medium">🎉 You won this auction!</p>
-                    
-                    {canPay && (
-                      <Button className="w-full" onClick={handlePay}>
-                        Pay {formatCurrency(vibe.currentBid)}
-                      </Button>
-                    )}
-
-                    {isPaid && (
-                      <p className="text-sm text-green-400">
-                        ✅ Payment complete! Contact info is shown above.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Bidder Actions */}
-                {!isCreator && !isWinner && isActive && !hasEnded && (
-                  <>
+                  {/* Bidding */}
+                  {!isCreator && !isWinner && isActive && !hasEnded && <>
                     <div className="mb-4">
                       <label className="block text-sm text-gray-400 mb-2">Your Bid</label>
-                      <input
-                        type="number"
-                        value={bidAmount}
-                        onChange={(e) => setBidAmount(e.target.value)}
-                        min={vibe.currentBid + vibe.minIncrement}
-                        step={vibe.minIncrement}
-                        className="w-full px-4 py-3 bg-dark-800 border border-dark-600 rounded-xl focus:outline-none focus:border-purple-500"
-                      />
+                      <input type="number" value={bidAmount} onChange={e => setBidAmount(e.target.value)} min={vibe.currentBid + vibe.minIncrement} className="w-full px-4 py-3 bg-dark-800 border border-dark-600 rounded-xl" />
                     </div>
-                    <Button
-                      className="w-full"
-                      onClick={handleBid}
-                      loading={bidding}
-                      disabled={!session}
-                    >
-                      {session ? 'Place Bid' : 'Login to Bid'}
-                    </Button>
-                  </>
-                )}
+                    <Button className="w-full" onClick={handleBid} loading={bidding} disabled={!session}>{session ? 'Place Bid' : 'Login to Bid'}</Button>
+                  </>}
 
-                {/* Status Messages */}
-                {!isCreator && !isWinner && hasEnded && !vibe.winnerUserId && (
-                  <p className="text-sm text-yellow-400 text-center">
-                    Auction ended. Waiting for creator to select winner.
-                  </p>
-                )}
+                  {!isCreator && !isWinner && hasEnded && !vibe.winnerUserId && <p className="text-sm text-yellow-400 text-center">Waiting for winner selection...</p>}
+                </div>
 
-                {!isCreator && !isWinner && vibe.winnerUserId && (
-                  <p className="text-sm text-gray-400 text-center">
-                    This auction has a winner.
-                  </p>
-                )}
-
-                {/* Tips */}
                 <div className="mt-6 p-4 bg-dark-800 rounded-xl">
-                  <h4 className="font-medium mb-2">💡 Tips</h4>
-                  <ul className="text-sm text-gray-400 space-y-1">
-                    <li>• Higher bids get noticed first</li>
-                    <li>• Payment unlocks contact info</li>
-                    <li>• 24 hours to pay after winning</li>
-                  </ul>
+                  <h4 className="font-medium mb-2">💡 How it works</h4>
+                  <ol className="text-sm text-gray-400 space-y-1">
+                    <li>1. Winner pays securely</li>
+                    <li>2. Creator delivers service</li>
+                    <li>3. Winner confirms receipt</li>
+                    <li>4. Payment released to creator</li>
+                  </ol>
                 </div>
               </div>
             </div>
