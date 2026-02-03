@@ -16,10 +16,23 @@ model User {
   passwordHash  String?
   bio           String?
   phone         String?
+  phoneVerified Boolean   @default(false)
   instagram     String?
   twitter       String?
   location      String?
   walletBalance Int       @default(0)
+
+  // Verification
+  isVerified        Boolean   @default(false)
+  verificationLevel String    @default("NONE") // NONE, BASIC, VERIFIED, TRUSTED
+  idDocumentUrl     String?
+  verifiedAt        DateTime?
+
+  // Stats
+  totalSales        Int       @default(0)
+  totalEarnings     Int       @default(0)
+  averageRating     Float     @default(0)
+  totalReviews      Int       @default(0)
 
   // Payout details
   payoutBankName      String?
@@ -30,13 +43,21 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relations
-  createdVibes Vibe[]    @relation("CreatorVibes")
-  wonVibes     Vibe[]    @relation("WinnerVibes")
-  bids         Bid[]
-  payments     Payment[]
-  auditLogs    AuditLog[]
-  accounts     Account[]
-  sessions     Session[]
+  createdVibes      Vibe[]          @relation("CreatorVibes")
+  wonVibes          Vibe[]          @relation("WinnerVibes")
+  bids              Bid[]
+  payments          Payment[]
+  auditLogs         AuditLog[]
+  accounts          Account[]
+  sessions          Session[]
+  sentMessages      Message[]       @relation("SentMessages")
+  receivedMessages  Message[]       @relation("ReceivedMessages")
+  reviewsGiven      Review[]        @relation("ReviewsGiven")
+  reviewsReceived   Review[]        @relation("ReviewsReceived")
+  disputesCreated   Dispute[]       @relation("DisputesCreated")
+  disputesAgainst   Dispute[]       @relation("DisputesAgainst")
+  conversations1    Conversation[]  @relation("ConversationUser1")
+  conversations2    Conversation[]  @relation("ConversationUser2")
 }
 
 model Account {
@@ -84,13 +105,22 @@ model Vibe {
   startingBid  Int
   minIncrement Int      @default(100)
   currentBid   Int
-  status       String   @default("ACTIVE")
+  status       String   @default("ACTIVE") // ACTIVE, ENDED, PAID, IN_PROGRESS, COMPLETED, DISPUTED, CANCELLED
   
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   endAt        DateTime
   selectedAt   DateTime?
   paymentDueAt DateTime?
+  
+  // Delivery tracking
+  deliveryDueAt     DateTime?
+  deliveredAt       DateTime?
+  completedAt       DateTime?
+  
+  // Escrow
+  escrowAmount      Int?
+  escrowReleasedAt  DateTime?
 
   // Relations
   creatorId    String
@@ -99,6 +129,9 @@ model Vibe {
   winner       User?    @relation("WinnerVibes", fields: [winnerUserId], references: [id])
   bids         Bid[]
   payments     Payment[]
+  reviews      Review[]
+  disputes     Dispute[]
+  conversation Conversation?
 }
 
 model Bid {
@@ -118,14 +151,83 @@ model Payment {
   feeAmount  Int
   netAmount  Int
   reference  String   @unique
-  status     String   @default("INITIATED")
+  status     String   @default("INITIATED") // INITIATED, SUCCESS, FAILED, REFUNDED, IN_ESCROW, RELEASED
   verifiedAt DateTime?
   createdAt  DateTime @default(now())
+  
+  // Escrow tracking
+  escrowReleasedAt DateTime?
+  refundedAt       DateTime?
+  refundReason     String?
 
   vibeId     String
   vibe       Vibe     @relation(fields: [vibeId], references: [id])
   payerId    String
   payer      User     @relation(fields: [payerId], references: [id])
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vibeId    String   @unique
+  vibe      Vibe     @relation(fields: [vibeId], references: [id])
+  
+  user1Id   String
+  user1     User     @relation("ConversationUser1", fields: [user1Id], references: [id])
+  user2Id   String
+  user2     User     @relation("ConversationUser2", fields: [user2Id], references: [id])
+
+  messages  Message[]
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  content   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  
+  senderId  String
+  sender    User     @relation("SentMessages", fields: [senderId], references: [id])
+  receiverId String
+  receiver  User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  rating    Int      // 1-5 stars
+  comment   String?
+  createdAt DateTime @default(now())
+
+  vibeId    String
+  vibe      Vibe     @relation(fields: [vibeId], references: [id])
+  
+  reviewerId String
+  reviewer   User     @relation("ReviewsGiven", fields: [reviewerId], references: [id])
+  revieweeId String
+  reviewee   User     @relation("ReviewsReceived", fields: [revieweeId], references: [id])
+}
+
+model Dispute {
+  id          String   @id @default(uuid())
+  reason      String
+  description String
+  status      String   @default("OPEN") // OPEN, UNDER_REVIEW, RESOLVED_REFUND, RESOLVED_RELEASE, CLOSED
+  resolution  String?
+  createdAt   DateTime @default(now())
+  resolvedAt  DateTime?
+
+  vibeId      String
+  vibe        Vibe     @relation(fields: [vibeId], references: [id])
+  
+  createdById String
+  createdBy   User     @relation("DisputesCreated", fields: [createdById], references: [id])
+  againstId   String
+  against     User     @relation("DisputesAgainst", fields: [againstId], references: [id])
 }
 
 model AuditLog {
