@@ -4,6 +4,9 @@ import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { v4 as uuid } from 'uuid'
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
+
 // Get messages for a conversation
 export async function GET(
   req: NextRequest,
@@ -18,7 +21,6 @@ export async function GET(
 
     const conversationId = params.id
 
-    // Get conversation and verify user is part of it
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
       include: {
@@ -68,7 +70,6 @@ export async function GET(
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
     }
 
-    // Check if user is part of conversation
     if (conversation.user1Id !== session.user.id && conversation.user2Id !== session.user.id) {
       return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     }
@@ -121,7 +122,6 @@ export async function POST(
       return NextResponse.json({ error: 'Message cannot be empty' }, { status: 400 })
     }
 
-    // Get conversation
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
     })
@@ -130,7 +130,6 @@ export async function POST(
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
     }
 
-    // Check if user is part of conversation
     if (conversation.user1Id !== session.user.id && conversation.user2Id !== session.user.id) {
       return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     }
@@ -139,7 +138,6 @@ export async function POST(
       ? conversation.user2Id 
       : conversation.user1Id
 
-    // Create message
     const message = await prisma.message.create({
       data: {
         id: uuid(),
@@ -159,7 +157,6 @@ export async function POST(
       },
     })
 
-    // Update conversation timestamp
     await prisma.conversation.update({
       where: { id: conversationId },
       data: { updatedAt: new Date() },

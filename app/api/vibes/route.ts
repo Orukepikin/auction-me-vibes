@@ -4,6 +4,9 @@ import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { v4 as uuid } from 'uuid'
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
+
 // GET - List vibes with search and filters
 export async function GET(req: NextRequest) {
   try {
@@ -13,10 +16,8 @@ export async function GET(req: NextRequest) {
     const sort = searchParams.get('sort') || 'newest'
     const status = searchParams.get('status') || 'ACTIVE'
 
-    // Build where clause
     const where: any = {}
 
-    // Status filter
     if (status === 'ACTIVE') {
       where.status = 'ACTIVE'
       where.endAt = { gt: new Date() }
@@ -24,7 +25,6 @@ export async function GET(req: NextRequest) {
       where.status = status
     }
 
-    // Search filter
     if (search) {
       where.OR = [
         { title: { contains: search, mode: 'insensitive' } },
@@ -32,46 +32,27 @@ export async function GET(req: NextRequest) {
       ]
     }
 
-    // Category filter
     if (category) {
       where.category = category
     }
 
-    // Build orderBy
     let orderBy: any = { createdAt: 'desc' }
     
     switch (sort) {
-      case 'newest':
-        orderBy = { createdAt: 'desc' }
-        break
-      case 'ending':
-        orderBy = { endAt: 'asc' }
-        break
-      case 'price_low':
-        orderBy = { currentBid: 'asc' }
-        break
-      case 'price_high':
-        orderBy = { currentBid: 'desc' }
-        break
-      case 'popular':
-        orderBy = { bids: { _count: 'desc' } }
-        break
+      case 'newest': orderBy = { createdAt: 'desc' }; break
+      case 'ending': orderBy = { endAt: 'asc' }; break
+      case 'price_low': orderBy = { currentBid: 'asc' }; break
+      case 'price_high': orderBy = { currentBid: 'desc' }; break
+      case 'popular': orderBy = { bids: { _count: 'desc' } }; break
     }
 
     const vibes = await prisma.vibe.findMany({
       where,
       include: {
         creator: {
-          select: {
-            id: true,
-            name: true,
-            image: true,
-            isVerified: true,
-          },
+          select: { id: true, name: true, image: true, isVerified: true },
         },
-        _count: {
-          select: { bids: true },
-        },
+        _count: { select: { bids: true } },
       },
       orderBy,
       take: 50,
@@ -80,10 +61,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(vibes)
   } catch (error) {
     console.error('Get vibes error:', error)
-    return NextResponse.json(
-      { error: 'Failed to get vibes' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to get vibes' }, { status: 500 })
   }
 }
 
@@ -97,18 +75,8 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const {
-      title,
-      description,
-      category,
-      mediaUrl,
-      weirdness,
-      startingBid,
-      minIncrement,
-      durationHours,
-    } = body
+    const { title, description, category, mediaUrl, weirdness, startingBid, minIncrement, durationHours } = body
 
-    // Validation
     if (!title || !title.trim()) {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 })
     }
@@ -125,11 +93,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Duration must be at least 1 hour' }, { status: 400 })
     }
 
-    // Calculate end time
     const endAt = new Date()
     endAt.setHours(endAt.getHours() + durationHours)
 
-    // Create vibe
     const vibe = await prisma.vibe.create({
       data: {
         id: uuid(),
@@ -146,17 +112,10 @@ export async function POST(req: NextRequest) {
         creatorId: session.user.id,
       },
       include: {
-        creator: {
-          select: {
-            id: true,
-            name: true,
-            image: true,
-          },
-        },
+        creator: { select: { id: true, name: true, image: true } },
       },
     })
 
-    // Log the action
     await prisma.auditLog.create({
       data: {
         id: uuid(),
@@ -169,9 +128,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(vibe, { status: 201 })
   } catch (error) {
     console.error('Create vibe error:', error)
-    return NextResponse.json(
-      { error: 'Failed to create vibe' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to create vibe' }, { status: 500 })
   }
 }

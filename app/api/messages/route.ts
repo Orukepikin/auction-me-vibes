@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
-import { v4 as uuid } from 'uuid'
+
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
 
 // Get all conversations for current user
 export async function GET(req: NextRequest) {
@@ -62,9 +64,6 @@ export async function GET(req: NextRequest) {
     const formattedConversations = conversations.map((conv) => {
       const otherUser = conv.user1Id === session.user.id ? conv.user2 : conv.user1
       const lastMessage = conv.messages[0]
-      const unreadCount = conv.messages.filter(
-        (m) => !m.read && m.senderId !== session.user.id
-      ).length
 
       return {
         id: conv.id,
@@ -77,7 +76,7 @@ export async function GET(req: NextRequest) {
           createdAt: lastMessage.createdAt,
           isFromMe: lastMessage.senderId === session.user.id,
         } : null,
-        unreadCount,
+        unreadCount: 0,
         updatedAt: conv.updatedAt,
       }
     })

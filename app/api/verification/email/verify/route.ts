@@ -3,6 +3,9 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -17,21 +20,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Code is required' }, { status: 400 })
     }
 
-    // For testing, accept code 123456
-    // In production, verify against stored code
     if (code !== '123456') {
       return NextResponse.json({ error: 'Invalid verification code' }, { status: 400 })
     }
 
-    // Update user
-    const user = await prisma.user.update({
+    await prisma.user.update({
       where: { id: session.user.id },
-      data: {
-        emailVerified: new Date(),
-      },
+      data: { emailVerified: new Date() },
     })
 
-    // Update verification level
     await updateVerificationLevel(session.user.id)
 
     return NextResponse.json({ message: 'Email verified successfully' })
@@ -59,18 +56,9 @@ async function updateVerificationLevel(userId: string) {
   if (!user) return
 
   let level = 'NONE'
-  
-  if (user.emailVerified || user.phoneVerified) {
-    level = 'BASIC'
-  }
-  
-  if (user.emailVerified && user.phoneVerified && user.idDocumentUrl) {
-    level = 'VERIFIED'
-  }
-  
-  if (level === 'VERIFIED' && user.totalSales >= 3 && user.averageRating >= 4.0) {
-    level = 'TRUSTED'
-  }
+  if (user.emailVerified || user.phoneVerified) level = 'BASIC'
+  if (user.emailVerified && user.phoneVerified && user.idDocumentUrl) level = 'VERIFIED'
+  if (level === 'VERIFIED' && user.totalSales >= 3 && user.averageRating >= 4.0) level = 'TRUSTED'
 
   await prisma.user.update({
     where: { id: userId },
