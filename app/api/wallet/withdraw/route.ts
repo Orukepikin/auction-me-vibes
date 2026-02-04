@@ -4,6 +4,9 @@ import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { v4 as uuid } from 'uuid'
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -67,28 +70,6 @@ export async function POST(req: NextRequest) {
         }),
       },
     })
-
-    // In production, you would:
-    // 1. Call Paystack Transfer API to initiate the transfer
-    // 2. Store the transfer reference
-    // 3. Handle webhooks for transfer status updates
-
-    // Example Paystack Transfer (commented out):
-    /*
-    const paystackResponse = await fetch('https://api.paystack.co/transfer', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        source: 'balance',
-        amount: amount * 100, // kobo
-        recipient: recipientCode, // You'd need to create a transfer recipient first
-        reason: 'Auction Me Vibes Payout',
-      }),
-    })
-    */
 
     return NextResponse.json({ 
       message: 'Withdrawal request submitted',

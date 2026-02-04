@@ -3,6 +3,9 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
+
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -26,16 +29,6 @@ export async function GET(req: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
-
-    // Get pending payouts
-    const pendingPayouts = await prisma.auditLog.aggregate({
-      where: {
-        userId: session.user.id,
-        action: 'PAYOUT_REQUESTED',
-        meta: { contains: '"status":"PENDING"' },
-      },
-      _count: true,
-    })
 
     // Get recent transactions from audit logs
     const auditLogs = await prisma.auditLog.findMany({
@@ -88,7 +81,7 @@ export async function GET(req: NextRequest) {
       balance: user.walletBalance,
       totalEarnings: user.totalEarnings,
       totalSales: user.totalSales,
-      pendingPayouts: 0, // Calculate from pending withdrawal requests
+      pendingPayouts: 0,
       bankDetails: {
         bankName: user.payoutBankName,
         accountNumber: user.payoutAccountNumber,
