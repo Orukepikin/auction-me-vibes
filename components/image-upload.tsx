@@ -1,167 +1,165 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import Image from 'next/image'
-import { Button } from './ui/button'
+import { Button } from '@/components/ui/button'
 
 interface ImageUploadProps {
-  value?: string
-  onChange: (url: string) => void
-  disabled?: boolean
+  onUpload: (url: string) => void
+  currentImage?: string
 }
 
-export function ImageUpload({ value, onChange, disabled }: ImageUploadProps) {
+export function ImageUpload({ onUpload, currentImage }: ImageUploadProps) {
   const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState('')
-  const [dragActive, setDragActive] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [preview, setPreview] = useState<string | null>(currentImage || null)
+  const [error, setError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleUpload = async (file: File) => {
-    setError('')
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file')
+      return
+    }
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Image must be less than 10MB')
+      return
+    }
+
+    setError(null)
     setUploading(true)
 
+    // Show preview immediately
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      setPreview(e.target?.result as string)
+    }
+    reader.readAsDataURL(file)
+
     try {
-      const formData = new FormData()
-      formData.append('file', file)
+      const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+      const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET
 
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Upload failed')
+      if (!cloudName || !uploadPreset) {
+        throw new Error('Cloudinary not configured')
       }
 
-      onChange(data.url)
-    } catch (err: any) {
-      setError(err.message || 'Failed to upload image')
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('upload_preset', uploadPreset)
+      formData.append('folder', 'auction-me-vibes')
+
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      )
+
+      if (!response.ok) {
+        throw new Error('Upload failed')
+      }
+
+      const data = await response.json()
+      onUpload(data.secure_url)
+    } catch (err) {
+      console.error('Upload error:', err)
+      setError('Failed to upload image. Please try again.')
+      setPreview(currentImage || null)
     } finally {
       setUploading(false)
     }
   }
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      handleUpload(file)
-    }
-  }
-
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true)
-    } else if (e.type === 'dragleave') {
-      setDragActive(false)
-    }
-  }
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setDragActive(false)
-
-    const file = e.dataTransfer.files?.[0]
-    if (file && file.type.startsWith('image/')) {
-      handleUpload(file)
-    } else {
-      setError('Please drop an image file')
-    }
+  const handleClick = () => {
+    fileInputRef.current?.click()
   }
 
   const handleRemove = () => {
-    onChange('')
-    if (inputRef.current) {
-      inputRef.current.value = ''
+    setPreview(null)
+    onUpload('')
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
     }
   }
 
   return (
-    <div className="w-full">
+    <div className="space-y-3">
       <input
-        ref={inputRef}
+        ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp"
+        accept="image/*"
         onChange={handleFileSelect}
         className="hidden"
-        disabled={disabled || uploading}
       />
 
-      {value ? (
-        // Preview
-        <div className="relative rounded-2xl overflow-hidden bg-dark-800 group">
-          <div className="relative h-48 sm:h-64">
-            <Image
-              src={value}
-              alt="Upload preview"
-              fill
-              className="object-cover"
+      {preview ? (
+        <div className="relative">
+          <div className="aspect-video rounded-xl overflow-hidden bg-dark-800">
+            <img
+              src={preview}
+              alt="Preview"
+              className="w-full h-full object-cover"
             />
           </div>
-          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
-            <Button
+          <div className="absolute top-3 right-3 flex gap-2">
+            <button
               type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => inputRef.current?.click()}
-              disabled={disabled || uploading}
+              onClick={handleClick}
+              disabled={uploading}
+              className="p-2 bg-dark-900/80 hover:bg-dark-900 rounded-lg transition-colors"
+              title="Change image"
             >
-              Change
-            </Button>
-            <Button
+              🔄
+            </button>
+            <button
               type="button"
-              variant="danger"
-              size="sm"
               onClick={handleRemove}
-              disabled={disabled || uploading}
+              disabled={uploading}
+              className="p-2 bg-red-500/80 hover:bg-red-500 rounded-lg transition-colors"
+              title="Remove image"
             >
-              Remove
-            </Button>
+              ✕
+            </button>
           </div>
+          {uploading && (
+            <div className="absolute inset-0 bg-dark-900/80 flex items-center justify-center rounded-xl">
+              <div className="text-center">
+                <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                <p className="text-sm">Uploading...</p>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
-        // Upload area
-        <div
-          onClick={() => !disabled && !uploading && inputRef.current?.click()}
-          onDragEnter={handleDrag}
-          onDragLeave={handleDrag}
-          onDragOver={handleDrag}
-          onDrop={handleDrop}
-          className={`relative h-48 sm:h-64 border-2 border-dashed rounded-2xl transition-all cursor-pointer ${
-            dragActive
-              ? 'border-purple-500 bg-purple-500/10'
-              : 'border-dark-600 hover:border-purple-500/50 hover:bg-dark-800'
-          } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+        <button
+          type="button"
+          onClick={handleClick}
+          disabled={uploading}
+          className="w-full aspect-video rounded-xl border-2 border-dashed border-dark-600 hover:border-purple-500 bg-dark-800/50 hover:bg-dark-800 transition-all flex flex-col items-center justify-center gap-3 cursor-pointer"
         >
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-            {uploading ? (
-              <>
-                <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-4" />
-                <p className="text-gray-400">Uploading...</p>
-              </>
-            ) : (
-              <>
-                <span className="text-5xl mb-4">📷</span>
-                <p className="text-gray-300 font-medium mb-2">
-                  Drop your image here or click to browse
-                </p>
-                <p className="text-sm text-gray-500">
-                  JPEG, PNG, GIF, or WebP • Max 5MB
-                </p>
-              </>
-            )}
-          </div>
-        </div>
+          {uploading ? (
+            <>
+              <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm text-gray-400">Uploading...</p>
+            </>
+          ) : (
+            <>
+              <span className="text-4xl">📷</span>
+              <p className="text-gray-400">Click to upload image</p>
+              <p className="text-xs text-gray-500">JPG, PNG, GIF up to 10MB</p>
+            </>
+          )}
+        </button>
       )}
 
       {error && (
-        <p className="mt-2 text-sm text-red-400 flex items-center gap-1">
-          <span>⚠️</span> {error}
-        </p>
+        <p className="text-red-400 text-sm">{error}</p>
       )}
     </div>
   )
