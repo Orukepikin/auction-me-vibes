@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState, useCallback } from 'react'
+import Link from 'next/link'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { Navbar } from '@/components/navbar'
-import { VibeCard, VibeCardSkeleton } from '@/components/vibe-card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { formatCurrency } from '@/lib/utils'
 
 interface Vibe {
   id: string
@@ -14,224 +15,340 @@ interface Vibe {
   mediaUrl: string | null
   weirdness: number
   currentBid: number
-  endAt: string
   status: string
+  endAt: string
   creator: {
     id: string
-    name: string | null
-    username: string | null
+    name: string
     image: string | null
+    isVerified?: boolean
   }
-  _count: {
-    bids: number
-  }
+  _count: { bids: number }
 }
 
-const categories = ['All', 'Chaos', 'Professional', 'Wholesome', 'Music', 'Art', 'Comedy', 'Other']
-
-const sortOptions = [
-  { value: 'endingSoon', label: 'Ending Soon' },
-  { value: 'newest', label: 'Newest' },
-  { value: 'highestBid', label: 'Highest Bid' },
-  { value: 'mostBids', label: 'Most Bids' },
+const CATEGORIES = [
+  { value: '', label: 'All Categories', icon: '🌀' },
+  { value: 'Creative', label: 'Creative', icon: '🎨' },
+  { value: 'Tech', label: 'Tech', icon: '💻' },
+  { value: 'Music', label: 'Music', icon: '🎵' },
+  { value: 'Art', label: 'Art', icon: '🖼️' },
+  { value: 'Writing', label: 'Writing', icon: '✍️' },
+  { value: 'Video', label: 'Video', icon: '🎬' },
+  { value: 'Advice', label: 'Advice', icon: '💡' },
+  { value: 'Chaos', label: 'Chaos', icon: '🔥' },
+  { value: 'Mystery', label: 'Mystery', icon: '🔮' },
+  { value: 'Other', label: 'Other', icon: '✨' },
 ]
 
-export default function MarketPage() {
-  const [vibes, setVibes] = useState<Vibe[]>([])
-  const [loading, setLoading] = useState(true)
-  const [selectedCategory, setSelectedCategory] = useState('All')
-  const [sortBy, setSortBy] = useState('endingSoon')
-  const [weirdnessRange, setWeirdnessRange] = useState([1, 10])
-  const [searchQuery, setSearchQuery] = useState('')
+const SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest First' },
+  { value: 'ending', label: 'Ending Soon' },
+  { value: 'price_low', label: 'Price: Low to High' },
+  { value: 'price_high', label: 'Price: High to Low' },
+  { value: 'popular', label: 'Most Bids' },
+]
+
+function TimeLeft({ endAt }: { endAt: string }) {
+  const [timeLeft, setTimeLeft] = useState('')
 
   useEffect(() => {
-    fetchVibes()
-  }, [selectedCategory, sortBy])
+    const calc = () => {
+      const diff = new Date(endAt).getTime() - Date.now()
+      if (diff <= 0) { setTimeLeft('Ended'); return }
+      const d = Math.floor(diff / 86400000)
+      const h = Math.floor((diff % 86400000) / 3600000)
+      const m = Math.floor((diff % 3600000) / 60000)
+      if (d > 0) setTimeLeft(`${d}d ${h}h`)
+      else if (h > 0) setTimeLeft(`${h}h ${m}m`)
+      else setTimeLeft(`${m}m`)
+    }
+    calc()
+    const t = setInterval(calc, 60000)
+    return () => clearInterval(t)
+  }, [endAt])
 
-  const fetchVibes = async () => {
+  const isEnding = new Date(endAt).getTime() - Date.now() < 3600000 // Less than 1 hour
+
+  return (
+    <span className={`text-sm ${isEnding ? 'text-red-400' : 'text-gray-400'}`}>
+      {timeLeft}
+    </span>
+  )
+}
+
+function VibeCard({ vibe }: { vibe: Vibe }) {
+  return (
+    <Link href={`/vibe/${vibe.id}`}>
+      <div className="glass-card rounded-2xl overflow-hidden hover:scale-[1.02] transition-all duration-300 cursor-pointer group">
+        {/* Image */}
+        <div className="aspect-video bg-dark-800 relative overflow-hidden">
+          {vibe.mediaUrl ? (
+            <img src={vibe.mediaUrl} alt={vibe.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-4xl bg-gradient-to-br from-purple-500/20 to-pink-500/20">
+              🌀
+            </div>
+          )}
+          
+          {/* Status Badge */}
+          <div className="absolute top-3 left-3">
+            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+              vibe.status === 'ACTIVE' ? 'bg-green-500/80 text-white' : 'bg-gray-500/80 text-white'
+            }`}>
+              {vibe.status === 'ACTIVE' ? '🔴 Live' : vibe.status}
+            </span>
+          </div>
+
+          {/* Category Badge */}
+          {vibe.category && (
+            <div className="absolute top-3 right-3">
+              <span className="px-2 py-1 bg-dark-900/80 rounded-full text-xs">
+                {CATEGORIES.find(c => c.value === vibe.category)?.icon} {vibe.category}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Content */}
+        <div className="p-4">
+          <h3 className="font-semibold text-lg mb-1 truncate group-hover:text-purple-400 transition-colors">
+            {vibe.title}
+          </h3>
+          <p className="text-gray-400 text-sm line-clamp-2 mb-3">
+            {vibe.description}
+          </p>
+
+          {/* Creator */}
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-xs font-bold">
+              {vibe.creator.name?.[0] || '?'}
+            </div>
+            <span className="text-sm text-gray-400 truncate">{vibe.creator.name}</span>
+            {vibe.creator.isVerified && <span className="text-green-400 text-xs">✓</span>}
+          </div>
+
+          {/* Stats */}
+          <div className="flex items-center justify-between pt-3 border-t border-dark-700">
+            <div>
+              <p className="text-xs text-gray-500">Current Bid</p>
+              <p className="font-bold text-purple-400">{formatCurrency(vibe.currentBid)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-gray-500">{vibe._count.bids} bids</p>
+              <TimeLeft endAt={vibe.endAt} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </Link>
+  )
+}
+
+export default function MarketPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  
+  const [vibes, setVibes] = useState<Vibe[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState(searchParams.get('q') || '')
+  const [category, setCategory] = useState(searchParams.get('category') || '')
+  const [sort, setSort] = useState(searchParams.get('sort') || 'newest')
+  const [showFilters, setShowFilters] = useState(false)
+
+  const fetchVibes = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({
-        sort: sortBy,
-        ...(selectedCategory !== 'All' && { category: selectedCategory }),
-        minWeirdness: weirdnessRange[0].toString(),
-        maxWeirdness: weirdnessRange[1].toString(),
-      })
+      const params = new URLSearchParams()
+      if (search) params.set('q', search)
+      if (category) params.set('category', category)
+      if (sort) params.set('sort', sort)
 
-      const res = await fetch(`/api/market?${params}`)
-      const data = await res.json()
-      setVibes(data.vibes || [])
+      const res = await fetch(`/api/vibes?${params.toString()}`)
+      if (res.ok) {
+        const data = await res.json()
+        setVibes(data)
+      }
     } catch (error) {
-      console.error('Failed to fetch vibes:', error)
+      console.error('Failed to fetch vibes')
     } finally {
       setLoading(false)
     }
+  }, [search, category, sort])
+
+  useEffect(() => {
+    fetchVibes()
+  }, [fetchVibes])
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault()
+    updateURL()
   }
 
-  const filteredVibes = vibes.filter(vibe => 
-    searchQuery === '' || 
-    vibe.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    vibe.description.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const updateURL = () => {
+    const params = new URLSearchParams()
+    if (search) params.set('q', search)
+    if (category) params.set('category', category)
+    if (sort) params.set('sort', sort)
+    router.push(`/market?${params.toString()}`)
+  }
 
-  const activeCount = vibes.filter(v => v.status === 'ACTIVE').length
-  const totalBids = vibes.reduce((sum, v) => sum + v._count.bids, 0)
+  const clearFilters = () => {
+    setSearch('')
+    setCategory('')
+    setSort('newest')
+    router.push('/market')
+  }
+
+  const activeFiltersCount = [search, category, sort !== 'newest'].filter(Boolean).length
 
   return (
     <div className="min-h-screen bg-dark-950">
-      {/* Background */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="blob blob-1 opacity-30" />
-        <div className="blob blob-2 opacity-30" />
-      </div>
-
       <Navbar />
 
-      <main className="relative z-10 pt-24 pb-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <main className="pt-24 pb-12">
+        <div className="max-w-7xl mx-auto px-4">
           {/* Header */}
-          <div className="py-8">
-            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-              <div>
-                <h1 className="text-4xl sm:text-5xl font-bold mb-3">
-                  <span className="gradient-text">Vibe</span> Market
-                </h1>
-                <p className="text-gray-400 text-lg">
-                  Browse active auctions and place your bids
-                </p>
-              </div>
-              <div className="flex items-center gap-6">
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-white">{activeCount}</p>
-                  <p className="text-xs text-gray-500 uppercase tracking-wider">Active</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-3xl font-bold gradient-text-gold">{totalBids}</p>
-                  <p className="text-xs text-gray-500 uppercase tracking-wider">Total Bids</p>
-                </div>
-              </div>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+            <div>
+              <h1 className="text-3xl font-bold">🏪 Vibe Market</h1>
+              <p className="text-gray-400">Discover unique services and weird talents</p>
             </div>
+            <Link href="/create">
+              <Button>✨ Create Vibe</Button>
+            </Link>
           </div>
 
-          {/* Filters */}
-          <div className="glass-card rounded-2xl p-6 mb-8">
-            {/* Search */}
-            <div className="mb-6">
-              <Input
-                placeholder="Search vibes..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="max-w-md"
-              />
-            </div>
-
-            {/* Categories */}
-            <div className="flex flex-wrap gap-2 mb-6">
-              {categories.map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 ${
-                    selectedCategory === cat
-                      ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/25'
-                      : 'bg-dark-700 text-gray-400 hover:bg-dark-600 hover:text-white border border-dark-600'
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
-
-            {/* Sort & Weirdness */}
-            <div className="flex flex-wrap items-center gap-6">
-              {/* Sort */}
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-500">Sort:</span>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="px-4 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500"
-                >
-                  {sortOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Weirdness slider */}
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-500">Weirdness:</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-green-400">Mild</span>
-                  <input
-                    type="range"
-                    min="1"
-                    max="10"
-                    value={weirdnessRange[0]}
-                    onChange={(e) => setWeirdnessRange([parseInt(e.target.value), weirdnessRange[1]])}
-                    className="w-20 accent-purple-500"
-                  />
-                  <span className="text-xs text-gray-400 font-mono">{weirdnessRange[0]}-{weirdnessRange[1]}</span>
-                  <input
-                    type="range"
-                    min="1"
-                    max="10"
-                    value={weirdnessRange[1]}
-                    onChange={(e) => setWeirdnessRange([weirdnessRange[0], parseInt(e.target.value)])}
-                    className="w-20 accent-purple-500"
-                  />
-                  <span className="text-xs text-red-400">Chaos</span>
-                </div>
-                <Button variant="ghost" size="sm" onClick={fetchVibes}>
-                  Apply
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          {/* Results count */}
-          <div className="mb-8 flex items-center justify-between">
-            <p className="text-gray-400">
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
-                  Loading vibes...
+          {/* Search Bar */}
+          <form onSubmit={handleSearch} className="mb-6">
+            <div className="flex gap-3">
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search vibes..."
+                  className="w-full px-5 py-4 pl-12 bg-dark-800 border border-dark-600 rounded-xl focus:outline-none focus:border-purple-500 text-lg"
+                />
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">
+                  🔍
                 </span>
-              ) : (
-                <span><strong className="text-white">{filteredVibes.length}</strong> vibes found</span>
-              )}
-            </p>
-          </div>
+              </div>
+              <Button type="submit" className="px-8">
+                Search
+              </Button>
+              <button
+                type="button"
+                onClick={() => setShowFilters(!showFilters)}
+                className={`px-4 rounded-xl border transition-colors ${
+                  showFilters || activeFiltersCount > 0
+                    ? 'bg-purple-500/20 border-purple-500 text-purple-400'
+                    : 'bg-dark-800 border-dark-600 text-gray-400 hover:border-purple-500'
+                }`}
+              >
+                ⚙️ Filters
+                {activeFiltersCount > 0 && (
+                  <span className="ml-2 bg-purple-500 text-white text-xs px-2 py-0.5 rounded-full">
+                    {activeFiltersCount}
+                  </span>
+                )}
+              </button>
+            </div>
+          </form>
 
-          {/* Vibes grid */}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {loading ? (
-              Array.from({ length: 8 }).map((_, i) => <VibeCardSkeleton key={i} />)
-            ) : filteredVibes.length > 0 ? (
-              filteredVibes.map((vibe, i) => (
-                <VibeCard key={vibe.id} vibe={vibe} featured={i === 0} index={i} />
-              ))
-            ) : (
-              <div className="col-span-full">
-                <div className="glass-card rounded-2xl p-16 text-center">
-                  <span className="text-7xl block mb-6">🌀</span>
-                  <h3 className="text-2xl font-bold mb-3">No vibes found</h3>
-                  <p className="text-gray-500 mb-8 max-w-md mx-auto">
-                    Try adjusting your filters or check back later for new auctions
-                  </p>
-                  <Button onClick={() => {
-                    setSelectedCategory('All')
-                    setWeirdnessRange([1, 10])
-                    setSearchQuery('')
-                  }}>
-                    Reset Filters
+          {/* Filters Panel */}
+          {showFilters && (
+            <div className="glass-card rounded-2xl p-6 mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-medium">Filters</h3>
+                {activeFiltersCount > 0 && (
+                  <button onClick={clearFilters} className="text-sm text-purple-400 hover:underline">
+                    Clear all
+                  </button>
+                )}
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* Sort */}
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">Sort By</label>
+                  <select
+                    value={sort}
+                    onChange={(e) => { setSort(e.target.value); }}
+                    className="w-full px-4 py-3 bg-dark-800 border border-dark-600 rounded-xl focus:outline-none focus:border-purple-500"
+                  >
+                    {SORT_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Apply Button */}
+                <div className="flex items-end">
+                  <Button onClick={updateURL} className="w-full">
+                    Apply Filters
                   </Button>
                 </div>
               </div>
-            )}
+            </div>
+          )}
+
+          {/* Categories */}
+          <div className="flex gap-2 overflow-x-auto pb-4 mb-6 scrollbar-hide">
+            {CATEGORIES.map((cat) => (
+              <button
+                key={cat.value}
+                onClick={() => { setCategory(cat.value); setTimeout(fetchVibes, 0); }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full whitespace-nowrap transition-all ${
+                  category === cat.value
+                    ? 'bg-purple-500 text-white'
+                    : 'bg-dark-800 text-gray-400 hover:bg-dark-700 hover:text-white'
+                }`}
+              >
+                <span>{cat.icon}</span>
+                <span>{cat.label}</span>
+              </button>
+            ))}
           </div>
+
+          {/* Results Count */}
+          <div className="flex items-center justify-between mb-6">
+            <p className="text-gray-400">
+              {loading ? 'Loading...' : `${vibes.length} vibes found`}
+              {search && <span className="text-purple-400"> for "{search}"</span>}
+              {category && <span className="text-purple-400"> in {category}</span>}
+            </p>
+          </div>
+
+          {/* Vibes Grid */}
+          {loading ? (
+            <div className="flex justify-center py-20">
+              <div className="w-10 h-10 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : vibes.length === 0 ? (
+            <div className="text-center py-20">
+              <span className="text-6xl mb-4 block">🔍</span>
+              <h3 className="text-xl font-bold mb-2">No vibes found</h3>
+              <p className="text-gray-400 mb-6">
+                {search || category ? 'Try different search terms or filters' : 'Be the first to create a vibe!'}
+              </p>
+              <div className="flex gap-3 justify-center">
+                {(search || category) && (
+                  <Button variant="secondary" onClick={clearFilters}>
+                    Clear Filters
+                  </Button>
+                )}
+                <Link href="/create">
+                  <Button>Create a Vibe</Button>
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {vibes.map((vibe) => (
+                <VibeCard key={vibe.id} vibe={vibe} />
+              ))}
+            </div>
+          )}
         </div>
       </main>
     </div>
