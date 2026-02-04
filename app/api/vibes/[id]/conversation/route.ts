@@ -4,7 +4,10 @@ import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { v4 as uuid } from 'uuid'
 
-// Start or get conversation for a vibe
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
+
+// Create or get conversation for a vibe
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -21,6 +24,13 @@ export async function POST(
     // Get the vibe
     const vibe = await prisma.vibe.findUnique({
       where: { id: vibeId },
+      select: {
+        id: true,
+        title: true,
+        creatorId: true,
+        winnerUserId: true,
+        status: true,
+      },
     })
 
     if (!vibe) {
@@ -33,15 +43,15 @@ export async function POST(
 
     if (!isCreator && !isWinner) {
       return NextResponse.json(
-        { error: 'Only creator and winner can message' },
+        { error: 'Only the creator or winner can start a conversation' },
         { status: 403 }
       )
     }
 
-    // Must have a winner selected
+    // Winner must be selected
     if (!vibe.winnerUserId) {
       return NextResponse.json(
-        { error: 'No winner selected yet' },
+        { error: 'No winner selected yet. Conversation will be available after a winner is chosen.' },
         { status: 400 }
       )
     }
@@ -61,13 +71,70 @@ export async function POST(
           user2Id: vibe.winnerUserId,
         },
       })
+
+      // Create a system message
+      await prisma.message.create({
+        data: {
+          id: uuid(),
+          conversationId: conversation.id,
+          senderId: vibe.creatorId,
+          receiverId: vibe.winnerUserId,
+          content: `Conversation started for "${vibe.title}". You can now discuss the details of the service.`,
+        },
+      })
     }
 
-    return NextResponse.json({ conversationId: conversation.id })
+    return NextResponse.json({
+      conversationId: conversation.id,
+      vibeId: vibe.id,
+      vibeTitle: vibe.title,
+    })
   } catch (error) {
-    console.error('Start conversation error:', error)
+    console.error('Create conversation error:', error)
     return NextResponse.json(
-      { error: 'Failed to start conversation' },
+      { error: 'Failed to create conversation' },
+      { status: 500 }
+    )
+  }
+}
+
+// Get conversation for a vibe
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const session = await getServerSession(authOptions)
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const vibeId = params.id
+
+    const conversation = await prisma.conversation.findUnique({
+      where: { vibeId },
+      include: {
+        vibe: {
+          select: { title: true, status: true, creatorId: true, winnerUserId: true },
+        },
+      },
+    })
+
+    if (!conversation) {
+      return NextResponse.json({ error: 'No conversation found' }, { status: 404 })
+    }
+
+    // Check if user is part of conversation
+    if (conversation.user1Id !== session.user.id && conversation.user2Id !== session.user.id) {
+      return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+    }
+
+    return NextResponse.json(conversation)
+  } catch (error) {
+    console.error('Get conversation error:', error)
+    return NextResponse.json(
+      { error: 'Failed to get conversation' },
       { status: 500 }
     )
   }

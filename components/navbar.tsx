@@ -12,6 +12,7 @@ export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [unreadMessages, setUnreadMessages] = useState(0)
+  const [unreadNotifications, setUnreadNotifications] = useState(0)
   const userMenuRef = useRef<HTMLDivElement>(null)
 
   const navLinks = [
@@ -33,21 +34,29 @@ export function Navbar() {
   useEffect(() => {
     if (session?.user) {
       fetchUnreadCounts()
-      const interval = setInterval(fetchUnreadCounts, 30000)
+      const interval = setInterval(fetchUnreadCounts, 15000) // Every 15 seconds
       return () => clearInterval(interval)
     }
   }, [session])
 
   const fetchUnreadCounts = async () => {
     try {
+      // Fetch unread messages
       const msgRes = await fetch('/api/messages')
       if (msgRes.ok) {
         const conversations = await msgRes.json()
         const totalUnread = conversations.reduce((sum: number, conv: any) => sum + (conv.unreadCount || 0), 0)
         setUnreadMessages(totalUnread)
       }
+
+      // Fetch notifications
+      const notifRes = await fetch('/api/notifications')
+      if (notifRes.ok) {
+        const data = await notifRes.json()
+        setUnreadNotifications(data.unreadCount || 0)
+      }
     } catch (error) {
-      console.error('Failed to fetch unread counts')
+      console.error('Failed to fetch counts')
     }
   }
 
@@ -73,7 +82,7 @@ export function Navbar() {
               <div className="w-8 h-8 rounded-full bg-dark-800 animate-pulse" />
             ) : session?.user ? (
               <>
-                {/* Messages - Clickable */}
+                {/* Messages */}
                 <Link href="/messages" className={`relative p-2.5 rounded-xl transition-all ${pathname === '/messages' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-400 hover:text-white hover:bg-dark-800'}`} title="Messages">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -81,11 +90,12 @@ export function Navbar() {
                   {unreadMessages > 0 && <span className="absolute -top-1 -right-1 w-5 h-5 bg-pink-500 rounded-full text-xs font-bold flex items-center justify-center text-white">{unreadMessages > 9 ? '9+' : unreadMessages}</span>}
                 </Link>
 
-                {/* Notifications - Clickable */}
+                {/* Notifications */}
                 <Link href="/notifications" className={`relative p-2.5 rounded-xl transition-all ${pathname === '/notifications' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-400 hover:text-white hover:bg-dark-800'}`} title="Notifications">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                   </svg>
+                  {unreadNotifications > 0 && <span className="absolute -top-1 -right-1 w-5 h-5 bg-pink-500 rounded-full text-xs font-bold flex items-center justify-center text-white">{unreadNotifications > 9 ? '9+' : unreadNotifications}</span>}
                 </Link>
 
                 {/* User Menu */}
@@ -110,8 +120,9 @@ export function Navbar() {
                       <div className="p-2">
                         <Link href="/dashboard" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 hover:bg-dark-800 hover:text-white transition-colors"><span>📊</span><span>Dashboard</span></Link>
                         <Link href="/messages" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 hover:bg-dark-800 hover:text-white transition-colors"><span>💬</span><span>Messages</span>{unreadMessages > 0 && <span className="ml-auto bg-pink-500 text-white text-xs px-2 py-0.5 rounded-full">{unreadMessages}</span>}</Link>
-                        <Link href="/notifications" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 hover:bg-dark-800 hover:text-white transition-colors"><span>🔔</span><span>Notifications</span></Link>
-                        <Link href="/settings/verification" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 hover:bg-dark-800 hover:text-white transition-colors"><span>✅</span><span>Get Verified</span><span className="ml-auto text-xs text-green-400">NEW</span></Link>
+                        <Link href="/notifications" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 hover:bg-dark-800 hover:text-white transition-colors"><span>🔔</span><span>Notifications</span>{unreadNotifications > 0 && <span className="ml-auto bg-pink-500 text-white text-xs px-2 py-0.5 rounded-full">{unreadNotifications}</span>}</Link>
+                        <Link href="/wallet" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 hover:bg-dark-800 hover:text-white transition-colors"><span>💰</span><span>Wallet</span></Link>
+                        <Link href="/settings/verification" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 hover:bg-dark-800 hover:text-white transition-colors"><span>✅</span><span>Get Verified</span></Link>
                         <Link href="/profile" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 hover:bg-dark-800 hover:text-white transition-colors"><span>👤</span><span>Edit Profile</span></Link>
                       </div>
                       <div className="p-2 border-t border-dark-700">
@@ -143,8 +154,8 @@ export function Navbar() {
               ))}
               <div className="border-t border-dark-700 my-2" />
               <Link href="/messages" onClick={() => setMobileMenuOpen(false)} className="px-4 py-3 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-dark-800 flex items-center justify-between"><span>💬 Messages</span>{unreadMessages > 0 && <span className="bg-pink-500 text-white text-xs px-2 py-0.5 rounded-full">{unreadMessages}</span>}</Link>
-              <Link href="/notifications" onClick={() => setMobileMenuOpen(false)} className="px-4 py-3 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-dark-800"><span>🔔 Notifications</span></Link>
-              <Link href="/settings/verification" onClick={() => setMobileMenuOpen(false)} className="px-4 py-3 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-dark-800 flex items-center justify-between"><span>✅ Get Verified</span><span className="text-xs text-green-400">NEW</span></Link>
+              <Link href="/notifications" onClick={() => setMobileMenuOpen(false)} className="px-4 py-3 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-dark-800 flex items-center justify-between"><span>🔔 Notifications</span>{unreadNotifications > 0 && <span className="bg-pink-500 text-white text-xs px-2 py-0.5 rounded-full">{unreadNotifications}</span>}</Link>
+              <Link href="/wallet" onClick={() => setMobileMenuOpen(false)} className="px-4 py-3 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-dark-800"><span>💰 Wallet</span></Link>
             </div>
           </div>
         )}
